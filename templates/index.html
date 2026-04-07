@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSD Spindel</title>
+<style>
+:root {
+  --bg:       #0d1117;
+  --panel:    #161b22;
+  --card:     #1c2128;
+  --border:   #30363d;
+  --accent:   #2f81f7;
+  --green:    #2ea043;
+  --green-h:  #3fb950;
+  --red:      #da3633;
+  --red-h:    #f85149;
+  --orange:   #f0883e;
+  --yellow:   #d29922;
+  --text:     #e6edf3;
+  --muted:    #7d8590;
+  --r:        10px;
+  --font:     'Segoe UI', system-ui, sans-serif;
+  --mono:     'Consolas', monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--font);display:flex;flex-direction:column;min-height:100vh;}
+
+/* ── Header ── */
+header{background:var(--panel);border-bottom:1px solid var(--border);padding:12px 22px;display:flex;align-items:center;gap:12px;}
+.logo{font-size:20px;font-weight:700;letter-spacing:.4px;}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red);transition:all .3s;flex-shrink:0;}
+.dot.on{background:var(--green-h);box-shadow:0 0 10px var(--green-h);}
+.sim-badge{margin-left:auto;background:#3d2b00;border:1px solid var(--yellow);color:var(--yellow);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;display:none;}
+.sim-badge.show{display:block;}
+
+/* ── Layout ── */
+main{flex:1;display:grid;grid-template-columns:300px 1fr;gap:14px;padding:14px;align-items:start;}
+.display-col{display:flex;flex-direction:column;gap:10px;}
+.control-card{grid-column:2;}
+
+/* ── Card ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;}
+.card-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin-bottom:14px;}
+
+/* ── Metrics ── */
+.metric{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;}
+.metric-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:3px;}
+.metric-val{font-family:var(--mono);font-weight:700;color:var(--text);line-height:1;}
+.metric-val.xl{font-size:40px;color:var(--accent);}
+.metric-val.lg{font-size:26px;}
+.metric-val.md{font-size:20px;}
+.metric-unit{font-size:12px;color:var(--muted);margin-top:2px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+.status-row{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;}
+.status-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
+.sv{font-family:var(--mono);font-weight:700;font-size:14px;}
+.sv.on,.sv.high{color:var(--green-h);}
+.sv.off,.sv.low{color:var(--red);}
+
+/* ── Tabs ── */
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:16px;}
+.tab-btn{background:none;border:none;color:var(--muted);font-size:13px;font-weight:500;padding:9px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s;}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tab-pane{display:none;}
+.tab-pane.active{display:block;}
+
+/* ── Form ── */
+label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px;}
+input[type=text],input[type=number]{background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:14px;padding:8px 11px;width:100%;outline:none;transition:border-color .15s;}
+input[type=text]:focus,input[type=number]:focus{border-color:var(--accent);}
+input[type=range]{width:100%;accent-color:var(--accent);margin:6px 0;}
+input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;cursor:pointer;}
+.fg{margin-bottom:12px;}
+.row{display:flex;gap:8px;align-items:flex-end;margin-bottom:12px;}
+.row input{flex:1;}
+.unit-lbl{color:var(--muted);font-size:12px;padding-bottom:10px;white-space:nowrap;}
+.timer-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.timer-row label{margin-bottom:0;}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+
+/* ── Buttons ── */
+.btn{border:none;border-radius:8px;font-size:14px;font-weight:600;padding:10px 16px;cursor:pointer;transition:filter .15s,transform .1s,opacity .15s;display:inline-block;}
+.btn:active{transform:scale(.98);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn-full{width:100%;display:block;margin-bottom:8px;}
+.btn-start{background:var(--green);color:#fff;font-size:16px;padding:14px;}
+.btn-start:hover:not(:disabled){background:var(--green-h);}
+.btn-stop{background:var(--red);color:#fff;font-size:16px;padding:14px;}
+.btn-stop:hover:not(:disabled){background:var(--red-h);}
+.btn-accent{background:var(--accent);color:#fff;}
+.btn-accent:hover{filter:brightness(1.15);}
+.btn-ghost{background:var(--panel);color:var(--text);border:1px solid var(--border);}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+.btn-danger{background:#260d0d;color:var(--red);border:1px solid var(--red);}
+.btn-danger:hover{background:var(--red);color:#fff;}
+.btn-export{background:#1b3a1b;color:var(--green-h);border:1px solid var(--green);font-size:13px;padding:8px 14px;}
+.btn-export:hover{background:var(--green);color:#fff;}
+.btn-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+hr.div{border:none;border-top:1px solid var(--border);margin:14px 0;}
+.sec-ttl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px;}
+
+
+/* ── Footer ── */
+footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 20px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;}
+.set-item{display:flex;align-items:center;gap:7px;}
+.set-item label{color:var(--muted);font-size:11px;margin:0;white-space:nowrap;}
+.set-item input{width:150px;font-size:12px;padding:5px 9px;}
+.lan-info{margin-left:auto;font-size:11px;color:var(--muted);font-family:var(--mono);}
+.lan-info a{color:var(--accent);text-decoration:none;}
+#error-bar{background:#1e0a0a;border-top:1px solid var(--red);color:var(--red);font-size:12px;padding:7px 20px;display:none;}
+#error-bar.show{display:block;}
+
+@media(max-width:700px){
+  main{grid-template-columns:1fr;}
+  .control-card{grid-column:1;}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot" id="dot"></div>
+  <div class="logo" id="hdr-name">HSD Spindel</div>
+  <div class="sim-badge" id="sim-badge">SIMULATION</div>
+</header>
+
+<main>
+  <!-- ── Display ── -->
+  <div class="display-col">
+    <div class="card">
+      <div class="card-title">Live-Anzeige</div>
+
+      <div class="metric" style="margin-bottom:8px">
+        <div class="metric-lbl">Soll-Drehzahl</div>
+        <div class="metric-val xl" id="d-soll">—</div>
+        <div class="metric-unit">U/min</div>
+      </div>
+
+      <div class="metric" style="margin-bottom:8px">
+        <div class="metric-lbl">Ist-Drehzahl</div>
+        <div class="metric-val lg" id="d-ist">—</div>
+        <div class="metric-unit">U/min</div>
+      </div>
+
+      <div class="grid2" style="margin-bottom:8px">
+        <div class="metric">
+          <div class="metric-lbl">Spannung</div>
+          <div class="metric-val md" id="d-volt">—</div>
+          <div class="metric-unit">V</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Frequenz</div>
+          <div class="metric-val md" id="d-freq">—</div>
+          <div class="metric-unit">Hz</div>
+        </div>
+      </div>
+
+      <div class="status-row" style="margin-bottom:6px">
+        <span class="status-lbl">Status</span>
+        <span class="sv off" id="d-status">AUS</span>
+      </div>
+      <div class="status-row" style="margin-bottom:6px">
+        <span class="status-lbl">Enable-Signal</span>
+        <span class="sv low" id="d-enable">LOW</span>
+      </div>
+
+      <div class="grid2" style="margin-top:6px">
+        <div class="metric">
+          <div class="metric-lbl">Laufzeit</div>
+          <div class="metric-val md" id="d-lauf">00:00</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Restzeit</div>
+          <div class="metric-val md" id="d-rest">∞</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Steuerung ── -->
+  <div class="card control-card">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="einsteiger">Einsteiger</button>
+      <button class="tab-btn"        data-tab="experten">Experten</button>
+    </div>
+
+    <!-- Einsteiger -->
+    <div class="tab-pane active" id="tab-einsteiger">
+      <div class="fg">
+        <label>Solldrehzahl</label>
+        <div class="row">
+          <input type="number" id="rpm-input" min="0" max="24000" step="100" value="1000">
+          <span class="unit-lbl">U/min</span>
+        </div>
+        <input type="range" id="rpm-slider" min="0" max="24000" step="100" value="1000">
+      </div>
+
+      <div class="timer-row">
+        <input type="checkbox" id="timer-check">
+        <label for="timer-check">Laufzeit begrenzen</label>
+        <input type="number" id="timer-min" min="1" max="999" value="3" disabled style="width:65px">
+        <span style="font-size:12px;color:var(--muted)">Minuten</span>
+      </div>
+
+      <button class="btn btn-full btn-start" id="btn-start">▶&nbsp;&nbsp;START</button>
+      <button class="btn btn-full btn-stop"  id="btn-stop">■&nbsp;&nbsp;STOP</button>
+    </div>
+
+    <!-- Experten -->
+    <div class="tab-pane" id="tab-experten">
+      <div class="sec-ttl">Drehzahl &amp; Spannung</div>
+      <div class="row">
+        <div style="flex:1"><label>Solldrehzahl (U/min)</label><input type="number" id="ex-rpm" min="0" max="24000" step="1" value="1000"></div>
+        <button class="btn btn-accent" style="flex-shrink:0;margin-bottom:0" onclick="applyRpm()">Übernehmen</button>
+      </div>
+      <div class="row">
+        <div style="flex:1"><label>Spannung direkt (V)</label><input type="number" id="ex-volt" min="0" max="10" step="0.01" value="0.00"></div>
+        <button class="btn btn-accent" style="flex-shrink:0;margin-bottom:0" onclick="applyVoltage()">Übernehmen</button>
+      </div>
+
+      <hr class="div">
+      <div class="sec-ttl">Manuell</div>
+      <div class="btn-row2">
+        <button class="btn btn-ghost" onclick="api('enable')">Manuell EIN</button>
+        <button class="btn btn-ghost" onclick="api('disable')">Manuell AUS</button>
+      </div>
+
+      <hr class="div">
+      <div class="sec-ttl">Kanäle &amp; Limits</div>
+      <div class="fg"><label>AO-Kanal</label><input type="text" id="ex-ao" value="cDAQ1Mod4/ao1"></div>
+      <div class="fg"><label>DO-Kanal</label><input type="text" id="ex-do" value="cDAQ1Mod1/port0/line1"></div>
+      <div class="g2">
+        <div><label>RPM Min</label><input type="number" id="ex-rmin" value="0"></div>
+        <div><label>RPM Max</label><input type="number" id="ex-rmax" value="24000"></div>
+        <div><label>Volt Min</label><input type="number" id="ex-vmin" step="0.1" value="0.0"></div>
+        <div><label>Volt Max</label><input type="number" id="ex-vmax" step="0.1" value="10.0"></div>
+      </div>
+      <button class="btn btn-full btn-danger" onclick="reinit()">⟳&nbsp; Kanäle neu initialisieren</button>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── Einstellungen ── -->
+<footer>
+  <div class="set-item">
+    <label>⚙ Name</label>
+    <input type="text" id="set-name" value="HSD Spindel" maxlength="64">
+    <button class="btn btn-accent" style="font-size:12px;padding:5px 12px" onclick="saveSettings()">Speichern</button>
+  </div>
+  <div class="set-item">
+    <label>IP</label>
+    <input type="text" id="set-host" value="0.0.0.0">
+    <small style="color:var(--muted);font-size:10px">Neustart nötig</small>
+  </div>
+  <div class="lan-info">
+    LAN: <a id="lan-link" href="#" target="_blank">http://{{ local_ip }}:{{ port }}</a>
+  </div>
+  <button class="btn btn-export" onclick="exportCsv()">⬇&nbsp; CSV</button>
+</footer>
+<div id="error-bar"></div>
+
+<script>
+// ─── SSE ───────────────────────────────────────────────────────────────────
+const es = new EventSource('/stream');
+es.onmessage = (e) => {
+  const s = JSON.parse(e.data);
+  updateDisplay(s);
+};
+es.onerror = () => showError('Verbindung unterbrochen. Seite neu laden?');
+
+// ─── Display update ─────────────────────────────────────────────────────────
+const fmt = (n, d=0) => n == null ? '—' : (+n).toLocaleString('de-DE', {minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtT = (s) => {
+  if (s == null) return '∞';
+  s = Math.max(0, Math.floor(s));
+  return `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
+};
+
+let _first = true;
+function updateDisplay(s) {
+  document.getElementById('d-soll').textContent  = fmt(s.soll_rpm);
+  document.getElementById('d-ist').textContent   = fmt(s.ist_rpm);
+  document.getElementById('d-volt').textContent  = fmt(s.voltage, 3);
+  document.getElementById('d-freq').textContent  = fmt(s.frequency_hz, 1);
+  document.getElementById('d-lauf').textContent  = fmtT(s.laufzeit_s);
+  document.getElementById('d-rest').textContent  = fmtT(s.restzeit_s);
+
+  const on = !!s.enabled;
+  document.getElementById('dot').classList.toggle('on', on);
+  const st = document.getElementById('d-status');
+  st.className = 'sv ' + (on ? 'on' : 'off'); st.textContent = on ? 'EIN' : 'AUS';
+  const en = document.getElementById('d-enable');
+  en.className = 'sv ' + (on ? 'high' : 'low'); en.textContent = on ? 'HIGH' : 'LOW';
+
+  document.getElementById('hdr-name').textContent = s.spindle_name || 'Spindel';
+  document.title = s.spindle_name || 'Spindel';
+  document.getElementById('sim-badge').classList.toggle('show', !!s.simulation);
+
+  s.error ? showError(s.error) : clearError();
+
+  if (_first) {
+    _first = false;
+    document.getElementById('ex-ao').value   = s.ao_channel   || '';
+    document.getElementById('ex-do').value   = s.do_channel   || '';
+    document.getElementById('ex-rmin').value = s.rpm_min      ?? 0;
+    document.getElementById('ex-rmax').value = s.rpm_max      ?? 24000;
+    document.getElementById('ex-vmin').value = s.voltage_min  ?? 0;
+    document.getElementById('ex-vmax').value = s.voltage_max  ?? 10;
+    document.getElementById('set-name').value = s.spindle_name || '';
+    document.getElementById('set-host').value = s.host || '0.0.0.0';
+    const rmax = s.rpm_max ?? 24000;
+    document.getElementById('rpm-slider').max = rmax;
+    document.getElementById('rpm-input').max  = rmax;
+    const url = 'http://{{ local_ip }}:{{ port }}';
+    const lnk = document.getElementById('lan-link');
+    lnk.href = url; lnk.textContent = url;
+  }
+}
+
+// ─── Tabs ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById('tab-' + b.dataset.tab).classList.add('active');
+}));
+
+// ─── Slider ↔ Input sync ────────────────────────────────────────────────────
+let _sync = false;
+const rInp = document.getElementById('rpm-input');
+const rSld = document.getElementById('rpm-slider');
+rSld.addEventListener('input', () => { if(_sync)return; _sync=true; rInp.value=rSld.value; _sync=false; });
+rInp.addEventListener('input', () => { if(_sync)return; _sync=true; rSld.value=rInp.value; _sync=false; });
+
+document.getElementById('timer-check').addEventListener('change', e =>
+  document.getElementById('timer-min').disabled = !e.target.checked
+);
+
+// ─── Button handlers ────────────────────────────────────────────────────────
+document.getElementById('btn-start').addEventListener('click', () => {
+  const rpm     = parseFloat(rInp.value) || 0;
+  const useT    = document.getElementById('timer-check').checked;
+  const limitM  = useT ? parseFloat(document.getElementById('timer-min').value) : null;
+  post('/api/start', { rpm, limit_min: limitM });
+});
+document.getElementById('btn-stop').addEventListener('click', () => post('/api/stop'));
+
+function applyRpm()     { post('/api/set_speed', { rpm: parseFloat(document.getElementById('ex-rpm').value) || 0 }); }
+function applyVoltage() {
+  const v=+document.getElementById('ex-volt').value, vmin=+document.getElementById('ex-vmin').value,
+        vmax=+document.getElementById('ex-vmax').value, rmin=+document.getElementById('ex-rmin').value,
+        rmax=+document.getElementById('ex-rmax').value;
+  const rpm = rmin + (v-vmin)/(vmax-vmin)*(rmax-rmin);
+  post('/api/set_speed', { rpm: Math.max(rmin, Math.min(rmax, rpm)) });
+}
+function reinit() {
+  post('/api/reinit', {
+    ao_channel:  document.getElementById('ex-ao').value,
+    do_channel:  document.getElementById('ex-do').value,
+    rpm_min:     +document.getElementById('ex-rmin').value,
+    rpm_max:     +document.getElementById('ex-rmax').value,
+    voltage_min: +document.getElementById('ex-vmin').value,
+    voltage_max: +document.getElementById('ex-vmax').value,
+  });
+}
+function saveSettings() {
+  post('/api/settings', {
+    spindle_name: document.getElementById('set-name').value,
+    host:         document.getElementById('set-host').value,
+  });
+}
+function api(ep) { post('/api/' + ep); }
+function exportCsv() { window.open('/api/export/csv', '_blank'); }
+
+// ─── fetch helper ────────────────────────────────────────────────────────────
+async function post(url, body={}) {
+  try {
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.ok && j.error) showError(j.error);
+  } catch(err) { showError('Netzwerk-Fehler: ' + err.message); }
+}
+function showError(m) { const e=document.getElementById('error-bar'); e.textContent='⚠ '+m; e.classList.add('show'); }
+function clearError()  { document.getElementById('error-bar').classList.remove('show'); }
+</script>
+</body>
+</html>

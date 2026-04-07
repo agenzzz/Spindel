@@ -1,0 +1,2 @@
+nidaqmx>=0.6.5
+flask>=3.0

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+.claude/
+test_server.log
+Spindel_Historie_*.csv
+Main.html
