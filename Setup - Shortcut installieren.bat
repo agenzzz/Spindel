@@ -7,8 +7,8 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-:: Ziel: Public Desktop (erscheint bei ALLEN Nutzern)
-set "SRC=C:\Users\Noel Jacobs\Documents\Spindel\Spindel Starten.bat"
+:: Shortcut auf Public Desktop — zeigt auf C:\Users\Public\Spindel
+set "SRC=C:\Users\Public\Spindel\Spindel Starten.bat"
 set "DST=C:\Users\Public\Desktop\Spindel Starten.bat"
 
 copy /Y "%SRC%" "%DST%" >nul
@@ -18,11 +18,10 @@ if %errorlevel% equ 0 (
     echo  %DST%
     echo.
     echo  "Spindel Starten" ist jetzt auf dem Desktop aller Nutzer sichtbar.
+    echo  Code-Ordner: C:\Users\Public\Spindel
 ) else (
     echo.
     echo  FEHLER: Konnte Shortcut nicht kopieren.
-    echo  Quelle:  %SRC%
-    echo  Ziel:    %DST%
 )
 
 echo.
