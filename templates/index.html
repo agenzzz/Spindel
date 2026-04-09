@@ -38,6 +38,16 @@ header{background:var(--panel);border-bottom:1px solid var(--border);padding:12p
 main{flex:1;display:grid;grid-template-columns:300px 1fr;gap:14px;padding:14px;align-items:start;}
 .display-col{display:flex;flex-direction:column;gap:10px;}
 .control-card{grid-column:2;}
+.psu-section{grid-column:1/-1;display:grid;grid-template-columns:300px 1fr;gap:14px;}
+
+/* ── PSU-spezifisch ── */
+.psu-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;margin-left:8px;}
+.psu-badge.ok{background:#1b3a1b;color:var(--green-h);border:1px solid var(--green);}
+.psu-badge.warn{background:#3d2b00;color:var(--yellow);border:1px solid var(--yellow);}
+.psu-badge.err{background:#260d0d;color:var(--red);border:1px solid var(--red);}
+.psu-badge.sim{background:#3d2b00;color:var(--yellow);border:1px solid var(--yellow);}
+.psu-dot{width:9px;height:9px;border-radius:50%;background:var(--red);display:inline-block;margin-right:6px;}
+.psu-dot.on{background:var(--green-h);box-shadow:0 0 8px var(--green-h);}
 
 /* ── Card ── */
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;}
@@ -103,6 +113,16 @@ hr.div{border:none;border-top:1px solid var(--border);margin:14px 0;}
 .sec-ttl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px;}
 
 
+/* ── Collapsible Sections ── */
+.section-hdr{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:10px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;grid-column:1/-1;margin-bottom:-6px;transition:border-color .15s;}
+.section-hdr:hover{border-color:var(--accent);}
+.section-hdr .chevron{font-size:14px;color:var(--muted);transition:transform .2s;width:18px;text-align:center;}
+.section-hdr.collapsed .chevron{transform:rotate(-90deg);}
+.section-hdr .sec-name{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);}
+.section-hdr .sec-status{margin-left:auto;font-size:11px;font-family:var(--mono);color:var(--muted);}
+.collapsible{display:contents;}
+.collapsible.collapsed>:not(.section-hdr){display:none!important;}
+
 /* ── Footer ── */
 footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 20px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;}
 .set-item{display:flex;align-items:center;gap:7px;}
@@ -116,6 +136,7 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
 @media(max-width:700px){
   main{grid-template-columns:1fr;}
   .control-card{grid-column:1;}
+  .psu-section{grid-column:1;grid-template-columns:1fr;}
 }
 </style>
 </head>
@@ -128,8 +149,15 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
 </header>
 
 <main>
+  <!-- ── Spindel (einklappbar) ── -->
+  <div class="section-hdr" onclick="toggleSection('spindle-section')">
+    <span class="chevron">&#9660;</span>
+    <span class="sec-name">Spindel</span>
+    <span class="sec-status" id="spindle-sec-status"></span>
+  </div>
+
   <!-- ── Display ── -->
-  <div class="display-col">
+  <div class="display-col section-part" data-section="spindle-section">
     <div class="card">
       <div class="card-title">Live-Anzeige</div>
 
@@ -181,7 +209,7 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
   </div>
 
   <!-- ── Steuerung ── -->
-  <div class="card control-card">
+  <div class="card control-card section-part" data-section="spindle-section">
     <div class="tabs">
       <button class="tab-btn active" data-tab="einsteiger">Einsteiger</button>
       <button class="tab-btn"        data-tab="experten">Experten</button>
@@ -242,6 +270,166 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
     </div>
   </div>
 
+  <!-- ── PSU (RD6006) ── -->
+  <div class="section-hdr collapsed" id="psu-section-hdr" onclick="toggleSection('psu-section')">
+    <span class="chevron">&#9660;</span>
+    <span class="sec-name">Netzteil RD6006</span>
+    <span class="sec-status" id="psu-sec-status"></span>
+  </div>
+  <div class="psu-section section-part" id="psu-section" style="display:none">
+    <!-- PSU Display -->
+    <div class="card">
+      <div class="card-title">Netzteil RD6006 <span class="psu-badge sim" id="psu-badge" style="display:none">SIM</span></div>
+
+      <div class="grid2" style="margin-bottom:8px">
+        <div class="metric">
+          <div class="metric-lbl">Spannung (Ist)</div>
+          <div class="metric-val lg" id="psu-ist-v" style="color:var(--orange)">—</div>
+          <div class="metric-unit">V</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Strom (Ist)</div>
+          <div class="metric-val lg" id="psu-ist-a">—</div>
+          <div class="metric-unit">A</div>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-bottom:8px">
+        <div class="metric">
+          <div class="metric-lbl">Soll-Spannung</div>
+          <div class="metric-val md" id="psu-soll-v">—</div>
+          <div class="metric-unit">V</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Strom-Limit</div>
+          <div class="metric-val md" id="psu-soll-a">—</div>
+          <div class="metric-unit">A</div>
+        </div>
+      </div>
+
+      <div class="status-row" style="margin-bottom:6px">
+        <span class="status-lbl">Output</span>
+        <span><span class="psu-dot" id="psu-dot"></span><span class="sv off" id="psu-status">AUS</span></span>
+      </div>
+      <div class="status-row" style="margin-bottom:6px">
+        <span class="status-lbl">Modus</span>
+        <span class="sv" id="psu-mode">—</span>
+      </div>
+      <div class="status-row">
+        <span class="status-lbl">Eingang</span>
+        <span class="sv" id="psu-input-v" style="color:var(--muted)">— V</span>
+      </div>
+    </div>
+
+    <!-- PSU Steuerung -->
+    <div class="card">
+      <div class="card-title">Netzteil-Steuerung</div>
+
+      <div class="fg">
+        <label>Ausgangsspannung (max 60 V)</label>
+        <div class="row">
+          <input type="number" id="psu-v-input" min="0" max="60" step="0.1" value="0">
+          <span class="unit-lbl">V</span>
+        </div>
+        <input type="range" id="psu-v-slider" min="0" max="60" step="0.1" value="0">
+      </div>
+
+      <div class="fg">
+        <label>Strom-Limit (max 6 A)</label>
+        <div class="row">
+          <input type="number" id="psu-a-input" min="0" max="6" step="0.01" value="1">
+          <span class="unit-lbl">A</span>
+        </div>
+        <input type="range" id="psu-a-slider" min="0" max="6" step="0.01" value="1">
+      </div>
+
+      <button class="btn btn-full btn-accent" id="psu-apply" style="margin-bottom:8px">Spannung &amp; Strom übernehmen</button>
+
+      <div class="btn-row2">
+        <button class="btn btn-full btn-start" id="psu-on" style="font-size:14px;padding:12px">&#9889;&nbsp; Output EIN</button>
+        <button class="btn btn-full btn-stop"  id="psu-off" style="font-size:14px;padding:12px">&#9632;&nbsp; Output AUS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PSU2 (DPM8624) ── -->
+  <div class="section-hdr" id="psu2-section-hdr" onclick="toggleSection('psu2-section')">
+    <span class="chevron">&#9660;</span>
+    <span class="sec-name">Netzteil DPM8624</span>
+    <span class="sec-status" id="psu2-sec-status"></span>
+  </div>
+  <div class="psu-section section-part" id="psu2-section">
+    <!-- PSU2 Display -->
+    <div class="card">
+      <div class="card-title">Netzteil DPM8624 <span class="psu-badge sim" id="psu2-badge" style="display:none">SIM</span></div>
+
+      <div class="grid2" style="margin-bottom:8px">
+        <div class="metric">
+          <div class="metric-lbl">Spannung (Ist)</div>
+          <div class="metric-val lg" id="psu2-ist-v" style="color:var(--orange)">—</div>
+          <div class="metric-unit">V</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Strom (Ist)</div>
+          <div class="metric-val lg" id="psu2-ist-a">—</div>
+          <div class="metric-unit">A</div>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-bottom:8px">
+        <div class="metric">
+          <div class="metric-lbl">Soll-Spannung</div>
+          <div class="metric-val md" id="psu2-soll-v">—</div>
+          <div class="metric-unit">V</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Strom-Limit</div>
+          <div class="metric-val md" id="psu2-soll-a">—</div>
+          <div class="metric-unit">A</div>
+        </div>
+      </div>
+
+      <div class="status-row" style="margin-bottom:6px">
+        <span class="status-lbl">Output</span>
+        <span><span class="psu-dot" id="psu2-dot"></span><span class="sv off" id="psu2-status">AUS</span></span>
+      </div>
+      <div class="status-row">
+        <span class="status-lbl">Modus</span>
+        <span class="sv" id="psu2-mode">—</span>
+      </div>
+    </div>
+
+    <!-- PSU2 Steuerung -->
+    <div class="card">
+      <div class="card-title">DPM8624-Steuerung</div>
+
+      <div class="fg">
+        <label>Ausgangsspannung (max 60 V)</label>
+        <div class="row">
+          <input type="number" id="psu2-v-input" min="0" max="60" step="0.1" value="0">
+          <span class="unit-lbl">V</span>
+        </div>
+        <input type="range" id="psu2-v-slider" min="0" max="60" step="0.1" value="0">
+      </div>
+
+      <div class="fg">
+        <label>Strom-Limit (max 24 A)</label>
+        <div class="row">
+          <input type="number" id="psu2-a-input" min="0" max="24" step="0.01" value="1">
+          <span class="unit-lbl">A</span>
+        </div>
+        <input type="range" id="psu2-a-slider" min="0" max="24" step="0.01" value="1">
+      </div>
+
+      <button class="btn btn-full btn-accent" id="psu2-apply" style="margin-bottom:8px">Spannung &amp; Strom übernehmen</button>
+
+      <div class="btn-row2">
+        <button class="btn btn-full btn-start" id="psu2-on" style="font-size:14px;padding:12px">&#9889;&nbsp; Output EIN</button>
+        <button class="btn btn-full btn-stop"  id="psu2-off" style="font-size:14px;padding:12px">&#9632;&nbsp; Output AUS</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ── Einstellungen ── -->
@@ -269,6 +457,9 @@ const es = new EventSource('/stream');
 es.onmessage = (e) => {
   const s = JSON.parse(e.data);
   updateDisplay(s);
+  updatePSU(s);
+  updatePSU2(s);
+  updateSectionStatus(s);
 };
 es.onerror = () => showError('Verbindung unterbrochen. Seite neu laden?');
 
@@ -386,6 +577,117 @@ async function post(url, body={}) {
 }
 function showError(m) { const e=document.getElementById('error-bar'); e.textContent='⚠ '+m; e.classList.add('show'); }
 function clearError()  { document.getElementById('error-bar').classList.remove('show'); }
+
+// ─── Collapsible Sections ──────────────────────────────────────────────────
+function toggleSection(id) {
+  const hdr = document.querySelector(`[onclick="toggleSection('${id}')"]`);
+  const parts = id === 'spindle-section'
+    ? document.querySelectorAll('[data-section="spindle-section"]')
+    : [document.getElementById(id)];
+  const collapsed = hdr.classList.toggle('collapsed');
+  parts.forEach(p => p.style.display = collapsed ? 'none' : '');
+}
+
+function updateSectionStatus(s) {
+  // Spindel
+  const spSt = document.getElementById('spindle-sec-status');
+  if (s.enabled) spSt.innerHTML = '<span style="color:var(--green-h)">' + fmt(s.soll_rpm) + ' U/min</span>';
+  else spSt.textContent = s.simulation ? 'SIMULATION' : 'AUS';
+  // RD6006
+  const p1St = document.getElementById('psu-sec-status');
+  if (s.psu_simulation) p1St.textContent = 'SIMULATION';
+  else if (s.psu_output) p1St.innerHTML = '<span style="color:var(--green-h)">' + fmt(s.psu_ist_v,2) + 'V / ' + fmt(s.psu_ist_a,3) + 'A</span>';
+  else p1St.textContent = 'AUS';
+  // DPM8624
+  const p2St = document.getElementById('psu2-sec-status');
+  if (s.psu2_simulation) p2St.textContent = 'SIMULATION';
+  else if (s.psu2_output) p2St.innerHTML = '<span style="color:var(--green-h)">' + fmt(s.psu2_ist_v,2) + 'V / ' + fmt(s.psu2_ist_a,3) + 'A</span>';
+  else p2St.textContent = 'AUS';
+}
+
+// ─── PSU ────────────────────────────────────────────────────────────────────
+// Slider <-> Input sync
+const pVInp = document.getElementById('psu-v-input');
+const pVSld = document.getElementById('psu-v-slider');
+const pAInp = document.getElementById('psu-a-input');
+const pASld = document.getElementById('psu-a-slider');
+let _psync = false;
+pVSld.addEventListener('input', () => { if(_psync)return; _psync=true; pVInp.value=pVSld.value; _psync=false; });
+pVInp.addEventListener('input', () => { if(_psync)return; _psync=true; pVSld.value=pVInp.value; _psync=false; });
+pASld.addEventListener('input', () => { if(_psync)return; _psync=true; pAInp.value=pASld.value; _psync=false; });
+pAInp.addEventListener('input', () => { if(_psync)return; _psync=true; pASld.value=pAInp.value; _psync=false; });
+
+document.getElementById('psu-apply').addEventListener('click', () => {
+  post('/api/psu/set', { voltage: parseFloat(pVInp.value)||0, current: parseFloat(pAInp.value)||0 });
+});
+document.getElementById('psu-on').addEventListener('click',  () => post('/api/psu/on'));
+document.getElementById('psu-off').addEventListener('click', () => post('/api/psu/off'));
+
+function updatePSU(s) {
+  document.getElementById('psu-ist-v').textContent  = fmt(s.psu_ist_v, 2);
+  document.getElementById('psu-ist-a').textContent  = fmt(s.psu_ist_a, 3);
+  document.getElementById('psu-soll-v').textContent = fmt(s.psu_soll_v, 2);
+  document.getElementById('psu-soll-a').textContent = fmt(s.psu_soll_a, 3);
+  document.getElementById('psu-input-v').textContent = fmt(s.psu_input_v, 1) + ' V';
+
+  const on = !!s.psu_output;
+  document.getElementById('psu-dot').classList.toggle('on', on);
+  const st = document.getElementById('psu-status');
+  st.className = 'sv ' + (on ? 'on' : 'off'); st.textContent = on ? 'EIN' : 'AUS';
+
+  const mode = document.getElementById('psu-mode');
+  if (s.psu_protection === 1) { mode.textContent = 'OVP'; mode.style.color = 'var(--red)'; }
+  else if (s.psu_protection === 2) { mode.textContent = 'OCP'; mode.style.color = 'var(--red)'; }
+  else { mode.textContent = s.psu_cv_cc === 0 ? 'CV' : 'CC'; mode.style.color = s.psu_cv_cc === 0 ? 'var(--green-h)' : 'var(--orange)'; }
+
+  const badge = document.getElementById('psu-badge');
+  if (s.psu_simulation) { badge.style.display = 'inline-block'; badge.textContent = 'SIMULATION'; badge.className = 'psu-badge sim'; }
+  else if (!s.psu_available) { badge.style.display = 'inline-block'; badge.textContent = 'OFFLINE'; badge.className = 'psu-badge err'; }
+  else { badge.style.display = 'none'; }
+
+  if (s.psu_error) showError(s.psu_error);
+}
+
+// ─── PSU2 (DPM8624) ────────────────────────────────────────────────────────
+const p2VInp = document.getElementById('psu2-v-input');
+const p2VSld = document.getElementById('psu2-v-slider');
+const p2AInp = document.getElementById('psu2-a-input');
+const p2ASld = document.getElementById('psu2-a-slider');
+let _p2sync = false;
+p2VSld.addEventListener('input', () => { if(_p2sync)return; _p2sync=true; p2VInp.value=p2VSld.value; _p2sync=false; });
+p2VInp.addEventListener('input', () => { if(_p2sync)return; _p2sync=true; p2VSld.value=p2VInp.value; _p2sync=false; });
+p2ASld.addEventListener('input', () => { if(_p2sync)return; _p2sync=true; p2AInp.value=p2ASld.value; _p2sync=false; });
+p2AInp.addEventListener('input', () => { if(_p2sync)return; _p2sync=true; p2ASld.value=p2AInp.value; _p2sync=false; });
+
+document.getElementById('psu2-apply').addEventListener('click', () => {
+  post('/api/psu2/set', { voltage: parseFloat(p2VInp.value)||0, current: parseFloat(p2AInp.value)||0 });
+});
+document.getElementById('psu2-on').addEventListener('click',  () => post('/api/psu2/on'));
+document.getElementById('psu2-off').addEventListener('click', () => post('/api/psu2/off'));
+
+function updatePSU2(s) {
+  document.getElementById('psu2-ist-v').textContent  = fmt(s.psu2_ist_v, 2);
+  document.getElementById('psu2-ist-a').textContent  = fmt(s.psu2_ist_a, 3);
+  document.getElementById('psu2-soll-v').textContent = fmt(s.psu2_soll_v, 2);
+  document.getElementById('psu2-soll-a').textContent = fmt(s.psu2_soll_a, 3);
+
+  const on = !!s.psu2_output;
+  document.getElementById('psu2-dot').classList.toggle('on', on);
+  const st = document.getElementById('psu2-status');
+  st.className = 'sv ' + (on ? 'on' : 'off'); st.textContent = on ? 'EIN' : 'AUS';
+
+  const mode = document.getElementById('psu2-mode');
+  if (s.psu2_protection === 1) { mode.textContent = 'OVP'; mode.style.color = 'var(--red)'; }
+  else if (s.psu2_protection === 2) { mode.textContent = 'OCP'; mode.style.color = 'var(--red)'; }
+  else { mode.textContent = s.psu2_cv_cc === 0 ? 'CV' : 'CC'; mode.style.color = s.psu2_cv_cc === 0 ? 'var(--green-h)' : 'var(--orange)'; }
+
+  const badge = document.getElementById('psu2-badge');
+  if (s.psu2_simulation) { badge.style.display = 'inline-block'; badge.textContent = 'SIMULATION'; badge.className = 'psu-badge sim'; }
+  else if (!s.psu2_available) { badge.style.display = 'inline-block'; badge.textContent = 'OFFLINE'; badge.className = 'psu-badge err'; }
+  else { badge.style.display = 'none'; }
+
+  if (s.psu2_error) showError(s.psu2_error);
+}
 </script>
 </body>
 </html>

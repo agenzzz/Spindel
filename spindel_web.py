@@ -22,6 +22,10 @@ from flask import Flask, Response, render_template, request, jsonify
 HOST         = "0.0.0.0"       # Alle Netzwerk-Interfaces → LAN-Zugriff möglich
 PORT         = 5000
 SPINDLE_NAME = "HSD Spindel"
+PSU_MAX_VOLT  = 60.0            # RD6006 max 60V
+PSU_MAX_AMP   = 6.0             # RD6006 max 6A
+PSU2_MAX_VOLT = 60.0            # DPM8624 max 60V
+PSU2_MAX_AMP  = 24.0            # DPM8624 max 24A
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ─── CONTROLLER-IMPORT MIT SIMULATION-FALLBACK ────────────────────────────────
@@ -43,6 +47,55 @@ except ImportError:
     RPM_MIN     = 0
     RPM_MAX     = 24000
     DEFAULT_RPM = 1000
+
+
+# ─── RD6006 PSU IMPORT MIT FALLBACK ──────────────────────────────────────────
+try:
+    from rd6006_control import RD6006
+    _PSU_AVAILABLE = True
+except ImportError:
+    _PSU_AVAILABLE = False
+
+
+# ─── DPM8600 PSU IMPORT MIT FALLBACK ─────────────────────────────────────────
+try:
+    from dpm8600_control import DPM8600
+    _PSU2_AVAILABLE = True
+except ImportError:
+    _PSU2_AVAILABLE = False
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class SimulationPSU:
+    """Ersetzt RD6006/DPM8600 wenn kein Netzteil verfügbar."""
+    _output  = False
+    _soll_v  = 0.0
+    _soll_a  = 1.0
+
+    def set_voltage(self, volts):
+        self._soll_v = volts
+
+    def set_current(self, amps):
+        self._soll_a = amps
+
+    def enable(self):
+        self._output = True
+
+    def disable(self):
+        self._output = False
+
+    def status(self):
+        return {
+            "soll_v":     self._soll_v,
+            "soll_a":     self._soll_a,
+            "ist_v":      self._soll_v if self._output else 0.0,
+            "ist_a":      0.0,
+            "input_v":    0.0,
+            "protection": 0,
+            "cv_cc":      0,
+            "output":     self._output,
+        }
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 class SimulationController:
@@ -91,6 +144,30 @@ state = {
     "voltage_max":  float(VOLTAGE_MAX),
     "simulation":   False,
     "error":        "",
+    # ── PSU (RD6006) ──
+    "psu_available":  False,
+    "psu_simulation": False,
+    "psu_soll_v":     0.0,
+    "psu_soll_a":     1.0,
+    "psu_ist_v":      0.0,
+    "psu_ist_a":      0.0,
+    "psu_input_v":    0.0,
+    "psu_output":     False,
+    "psu_cv_cc":      0,       # 0=CV, 1=CC
+    "psu_protection": 0,       # 0=OK, 1=OVP, 2=OCP
+    "psu_error":      "",
+    # ── PSU2 (DPM8624) ──
+    "psu2_available":  False,
+    "psu2_simulation": False,
+    "psu2_soll_v":     0.0,
+    "psu2_soll_a":     1.0,
+    "psu2_ist_v":      0.0,
+    "psu2_ist_a":      0.0,
+    "psu2_input_v":    0.0,
+    "psu2_output":     False,
+    "psu2_cv_cc":      0,
+    "psu2_protection": 0,
+    "psu2_error":      "",
 }
 state_lock  = threading.Lock()
 timer_event = threading.Event()   # gesetzt → Timer-Thread soll stoppen
@@ -136,6 +213,59 @@ def _init_controller():
 
 
 controller = _init_controller()
+
+
+def _init_psu():
+    global psu
+    if not _PSU_AVAILABLE:
+        state["psu_available"]  = False
+        state["psu_simulation"] = True
+        state["psu_error"]      = "rd6006_control.py nicht gefunden"
+        return SimulationPSU()
+    try:
+        p = RD6006()
+        state["psu_available"]  = True
+        state["psu_simulation"] = False
+        state["psu_error"]      = ""
+        return p
+    except Exception as exc:
+        state["psu_available"]  = True
+        state["psu_simulation"] = True
+        state["psu_error"]      = f"RD6006 nicht erreichbar: {exc}"
+        return SimulationPSU()
+
+
+psu = _init_psu()
+psu_lock = threading.Lock()
+
+# RD6006 COM-Port merken, damit DPM8600 ihn ausschließen kann
+_psu1_port = getattr(psu, "inst", None)
+_psu1_com  = _psu1_port.serial.port if _psu1_port else None
+
+
+def _init_psu2():
+    global psu2
+    if not _PSU2_AVAILABLE:
+        state["psu2_available"]  = False
+        state["psu2_simulation"] = True
+        state["psu2_error"]      = "dpm8600_control.py nicht gefunden"
+        return SimulationPSU()
+    try:
+        exclude = [_psu1_com] if _psu1_com else []
+        p = DPM8600(exclude_ports=exclude)
+        state["psu2_available"]  = True
+        state["psu2_simulation"] = False
+        state["psu2_error"]      = ""
+        return p
+    except Exception as exc:
+        state["psu2_available"]  = True
+        state["psu2_simulation"] = True
+        state["psu2_error"]      = f"DPM8600 nicht erreichbar: {exc}"
+        return SimulationPSU()
+
+
+psu2 = _init_psu2()
+psu2_lock = threading.Lock()
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ─── TIMER-THREAD ─────────────────────────────────────────────────────────────
@@ -214,6 +344,38 @@ def index():
 def stream():
     def event_gen():
         while True:
+            # PSU-Messwerte aktualisieren
+            try:
+                with psu_lock:
+                    ps = psu.status()
+                with state_lock:
+                    state["psu_soll_v"]     = ps["soll_v"]
+                    state["psu_soll_a"]     = ps["soll_a"]
+                    state["psu_ist_v"]      = ps["ist_v"]
+                    state["psu_ist_a"]      = ps["ist_a"]
+                    state["psu_input_v"]    = ps["input_v"]
+                    state["psu_output"]     = ps["output"]
+                    state["psu_cv_cc"]      = ps["cv_cc"]
+                    state["psu_protection"] = ps["protection"]
+            except Exception:
+                pass  # Bei Lesefehler alte Werte behalten
+
+            # PSU2-Messwerte aktualisieren
+            try:
+                with psu2_lock:
+                    ps2 = psu2.status()
+                with state_lock:
+                    state["psu2_soll_v"]     = ps2["soll_v"]
+                    state["psu2_soll_a"]     = ps2["soll_a"]
+                    state["psu2_ist_v"]      = ps2["ist_v"]
+                    state["psu2_ist_a"]      = ps2["ist_a"]
+                    state["psu2_input_v"]    = ps2["input_v"]
+                    state["psu2_output"]     = ps2["output"]
+                    state["psu2_cv_cc"]      = ps2["cv_cc"]
+                    state["psu2_protection"] = ps2["protection"]
+            except Exception:
+                pass
+
             with state_lock:
                 snap = dict(state)
             _record(snap)
@@ -392,6 +554,104 @@ def api_reinit():
         return jsonify({"ok": False, "error": str(exc)}), 500
 # ──────────────────────────────────────────────────────────────────────────────
 
+# ─── PSU API-ROUTEN ──────────────────────────────────────────────────────────
+@app.route("/api/psu/set", methods=["POST"])
+def api_psu_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        with psu_lock:
+            if "voltage" in data:
+                v = max(0.0, min(PSU_MAX_VOLT, float(data["voltage"])))
+                psu.set_voltage(v)
+            if "current" in data:
+                a = max(0.0, min(PSU_MAX_AMP, float(data["current"])))
+                psu.set_current(a)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        with state_lock:
+            state["psu_error"] = str(exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/psu/on", methods=["POST"])
+def api_psu_on():
+    try:
+        with psu_lock:
+            psu.enable()
+        with state_lock:
+            state["psu_output"] = True
+            state["psu_error"]  = ""
+        return jsonify({"ok": True})
+    except Exception as exc:
+        with state_lock:
+            state["psu_error"] = str(exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/psu/off", methods=["POST"])
+def api_psu_off():
+    try:
+        with psu_lock:
+            psu.disable()
+        with state_lock:
+            state["psu_output"] = False
+            state["psu_error"]  = ""
+        return jsonify({"ok": True})
+    except Exception as exc:
+        with state_lock:
+            state["psu_error"] = str(exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ─── PSU2 (DPM8624) API-ROUTEN ──────────────────────────────────────────────
+@app.route("/api/psu2/set", methods=["POST"])
+def api_psu2_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        with psu2_lock:
+            if "voltage" in data:
+                v = max(0.0, min(PSU2_MAX_VOLT, float(data["voltage"])))
+                psu2.set_voltage(v)
+            if "current" in data:
+                a = max(0.0, min(PSU2_MAX_AMP, float(data["current"])))
+                psu2.set_current(a)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        with state_lock:
+            state["psu2_error"] = str(exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/psu2/on", methods=["POST"])
+def api_psu2_on():
+    try:
+        with psu2_lock:
+            psu2.enable()
+        with state_lock:
+            state["psu2_output"] = True
+            state["psu2_error"]  = ""
+        return jsonify({"ok": True})
+    except Exception as exc:
+        with state_lock:
+            state["psu2_error"] = str(exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/psu2/off", methods=["POST"])
+def api_psu2_off():
+    try:
+        with psu2_lock:
+            psu2.disable()
+        with state_lock:
+            state["psu2_output"] = False
+            state["psu2_error"]  = ""
+        return jsonify({"ok": True})
+    except Exception as exc:
+        with state_lock:
+            state["psu2_error"] = str(exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+# ──────────────────────────────────────────────────────────────────────────────
+
 # ─── SINGLE-INSTANCE + STARTER ────────────────────────────────────────────────
 def _port_in_use():
     with socket.socket() as s:
@@ -420,3 +680,11 @@ if __name__ == "__main__":
         app.run(host=HOST, port=PORT, threaded=True, use_reloader=False)
     finally:
         controller.close()
+        try:
+            psu.disable()
+        except Exception:
+            pass
+        try:
+            psu2.disable()
+        except Exception:
+            pass
