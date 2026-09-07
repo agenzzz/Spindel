@@ -120,6 +120,20 @@ class SimulationController:
     def disable(self):
         self._enabled = False
 
+    _valve_states = [False, False]
+
+    def set_valve(self, index, state):
+        self._valve_states[index] = bool(state)
+
+    def get_valve_states(self):
+        return list(self._valve_states)
+
+    def read_temperature(self):
+        return 22.0
+
+    def read_temperatures(self):
+        return [22.0, 22.5, 21.8]
+
     def close(self):
         self._enabled = False
 # ──────────────────────────────────────────────────────────────────────────────
@@ -144,6 +158,14 @@ state = {
     "voltage_max":  float(VOLTAGE_MAX),
     "simulation":   False,
     "error":        "",
+    # ── Temperaturen (3 Pyrometer) ──
+    "temperature_c":  None,            # Backward-Compat = temps[0]
+    "temperatures":   [None, None, None],
+    "temp_labels":    ["Sensor 1", "Sensor 2", "Sensor 3"],
+    # ── Ventile ──
+    "valve1":         False,
+    "valve2":         False,
+    "valve_labels":   ["Ventil 1", "Ventil 2"],
     # ── PSU (RD6006) ──
     "psu_available":  False,
     "psu_simulation": False,
@@ -187,6 +209,7 @@ def _record(snap):
         "volt":    snap["voltage"],
         "freq":    snap["frequency_hz"],
         "enabled": int(snap["enabled"]),
+        "temps":   list(snap.get("temperatures") or [None, None, None]),
     }
     with history_lock:
         history.append(entry)
@@ -344,6 +367,17 @@ def index():
 def stream():
     def event_gen():
         while True:
+            # Temperaturen lesen (alle 3 Pyrometer)
+            try:
+                temps = controller.read_temperatures()
+                # Auf 3 Elemente auffuellen/kuerzen
+                temps = (list(temps) + [None, None, None])[:3]
+                with state_lock:
+                    state["temperatures"]   = temps
+                    state["temperature_c"]  = temps[0]
+            except Exception:
+                pass
+
             # PSU-Messwerte aktualisieren
             try:
                 with psu_lock:
@@ -394,8 +428,14 @@ def export_csv():
         rows = list(history)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Zeitstempel", "Soll_RPM", "Ist_RPM", "Spannung_V", "Frequenz_Hz", "Aktiv"])
+    with state_lock:
+        labels = list(state.get("temp_labels", ["Sensor 1", "Sensor 2", "Sensor 3"]))
+    w.writerow([
+        "Zeitstempel", "Soll_RPM", "Ist_RPM", "Spannung_V", "Frequenz_Hz", "Aktiv",
+        f"{labels[0]}_C", f"{labels[1]}_C", f"{labels[2]}_C",
+    ])
     for r in rows:
+        temps = (list(r.get("temps") or []) + [None, None, None])[:3]
         w.writerow([
             datetime.fromtimestamp(r["ts"]).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             f"{r['soll']:.1f}",
@@ -403,6 +443,9 @@ def export_csv():
             f"{r['volt']:.4f}",
             f"{r['freq']:.2f}",
             r["enabled"],
+            f"{temps[0]:.1f}" if temps[0] is not None else "",
+            f"{temps[1]:.1f}" if temps[1] is not None else "",
+            f"{temps[2]:.1f}" if temps[2] is not None else "",
         ])
     filename = f"Spindel_Historie_{_session_start}.csv"
     return Response(
@@ -511,6 +554,16 @@ def api_settings():
             state["spindle_name"] = str(data["spindle_name"])[:64]
         if "host" in data:
             state["host"] = str(data["host"])
+        if "temp_labels" in data and isinstance(data["temp_labels"], list):
+            labels = [str(x)[:32] for x in data["temp_labels"]][:3]
+            while len(labels) < 3:
+                labels.append(f"Sensor {len(labels)+1}")
+            state["temp_labels"] = labels
+        if "valve_labels" in data and isinstance(data["valve_labels"], list):
+            vlabels = [str(x)[:32] for x in data["valve_labels"]][:2]
+            while len(vlabels) < 2:
+                vlabels.append(f"Ventil {len(vlabels)+1}")
+            state["valve_labels"] = vlabels
     return jsonify({"ok": True})
 
 
@@ -600,6 +653,26 @@ def api_psu_off():
     except Exception as exc:
         with state_lock:
             state["psu_error"] = str(exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ─── VENTIL API-ROUTEN ───────────────────────────────────────────────────────
+@app.route("/api/valve", methods=["POST"])
+def api_valve():
+    data = request.get_json(silent=True) or {}
+    idx = int(data.get("valve", 1)) - 1  # 1-basiert → 0-basiert
+    val = bool(data.get("state", False))
+    if idx not in (0, 1):
+        return jsonify({"ok": False, "error": "Ventil muss 1 oder 2 sein"}), 400
+    try:
+        controller.set_valve(idx, val)
+        with state_lock:
+            state[f"valve{idx+1}"] = val
+            state["error"] = ""
+        return jsonify({"ok": True})
+    except Exception as exc:
+        with state_lock:
+            state["error"] = str(exc)
         return jsonify({"ok": False, "error": str(exc)}), 500
 # ──────────────────────────────────────────────────────────────────────────────
 

@@ -21,7 +21,15 @@ from nidaqmx.constants import LineGrouping
 # ─── KONFIGURATION ────────────────────────────────────────────────────────────
 # Bestätigt aus LabVIEW-Blockdiagramm-Bildern (Drehzahl__S1d.png, Spindelstartd.png)
 AO_CHANNEL  = "cDAQ1Mod4/ao1"          # NI 9263, Slot 4, Kanal AO 1
-DO_CHANNEL  = "cDAQ1Mod1/port0/line1"  # NI 9472, Slot 1, DO 1
+DO_CHANNEL     = "cDAQ1Mod1/port0/line1"  # NI 9472, Slot 1, DO 1
+VALVE1_CHANNEL = "cDAQ1Mod1/port0/line5"  # NI 9472, Slot 1, DO 5 (Ventil 1 / Relais D1)
+VALVE2_CHANNEL = "cDAQ1Mod1/port0/line6"  # NI 9472, Slot 1, DO 6 (Ventil 2 / Relais D2)
+AI_CHANNELS = [                        # NI 9203, Slot 7 (3 Pyrometer 4-20mA)
+    "cDAQ1Mod7/ai0",
+    "cDAQ1Mod7/ai1",
+    "cDAQ1Mod7/ai2",
+]
+AI_CHANNEL  = AI_CHANNELS[0]           # Backward-Compat
 
 VOLTAGE_MIN = 0.0    # Volt bei RPM_MIN
 VOLTAGE_MAX = 10.0   # Volt bei RPM_MAX
@@ -29,6 +37,18 @@ VOLTAGE_MAX = 10.0   # Volt bei RPM_MAX
 RPM_MIN     = 0
 RPM_MAX     = 24000  # Maximale Drehzahl der HSD-Spindel
 DEFAULT_RPM = 1000    # Startdrehzahl
+
+# ─── Pyrometer (Optris CSmicro LT22H, OPTCSMALT22HHCF305) ───────────────────
+TEMP_MIN     = 0.0    # °C bei 4 mA (Werkseinstellung)
+TEMP_MAX     = 500.0  # °C bei 20 mA (Werkseinstellung)
+CURRENT_4MA  = 0.004  # 4 mA Untergrenze
+CURRENT_20MA = 0.020  # 20 mA Obergrenze
+
+
+def current_to_temp(amps: float) -> float:
+    """4-20 mA Stromsignal in Temperatur (°C) umrechnen."""
+    clamped = max(CURRENT_4MA, min(CURRENT_20MA, amps))
+    return TEMP_MIN + (clamped - CURRENT_4MA) / (CURRENT_20MA - CURRENT_4MA) * (TEMP_MAX - TEMP_MIN)
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -70,6 +90,9 @@ class SpindleController:
     def __init__(self):
         self._ao_task = None
         self._do_task = None
+        self._ai_task = None
+        self._valve_task = None
+        self._valve_states = [False, False]
         self._enabled = False
         self._current_rpm = 0.0
         self._setup_tasks()
@@ -89,6 +112,38 @@ class SpindleController:
             DO_CHANNEL,
             line_grouping=LineGrouping.CHAN_PER_LINE,
         )
+
+        # Ventil-Task (2 Magnetventile ueber Relais D1/D2)
+        try:
+            self._valve_task = nidaqmx.Task()
+            self._valve_task.do_channels.add_do_chan(
+                VALVE1_CHANNEL, line_grouping=LineGrouping.CHAN_PER_LINE)
+            self._valve_task.do_channels.add_do_chan(
+                VALVE2_CHANNEL, line_grouping=LineGrouping.CHAN_PER_LINE)
+            self._valve_task.write([False, False])
+        except Exception:
+            self._valve_task = None
+
+        # Analogeingang-Task (Pyrometer 4-20mA — NI 9203, bis zu 3 Kanaele)
+        try:
+            from nidaqmx.constants import AcquisitionType
+            self._ai_task = nidaqmx.Task()
+            for ch in AI_CHANNELS:
+                self._ai_task.ai_channels.add_ai_current_chan(
+                    ch,
+                    min_val=CURRENT_4MA,
+                    max_val=CURRENT_20MA,
+                )
+            # 50 Samples @ 1 kHz mitteln → stabiler Messwert
+            self._ai_task.timing.cfg_samp_clk_timing(
+                rate=1000,
+                sample_mode=AcquisitionType.FINITE,
+                samps_per_chan=50,
+            )
+            self._num_ai = len(AI_CHANNELS)
+        except Exception:
+            self._ai_task = None
+            self._num_ai = 0
 
     def rpm_to_voltage(self, rpm: float) -> float:
         """Lineare Umrechnung: Drehzahl [1/min] → Spannung [V]."""
@@ -122,6 +177,37 @@ class SpindleController:
         self._enabled = False
         print("  Spindel AUSGESCHALTET")
 
+    def set_valve(self, index, state):
+        """Ventil schalten. index: 0 oder 1, state: True/False."""
+        if self._valve_task is None:
+            return
+        self._valve_states[index] = bool(state)
+        self._valve_task.write(self._valve_states)
+        print(f"  Ventil {index+1}: {'OFFEN' if state else 'ZU'}")
+
+    def get_valve_states(self):
+        """Gibt [bool, bool] fuer Ventil 1 und 2 zurueck."""
+        return list(self._valve_states)
+
+    def read_temperature(self):
+        """Temperatur vom ersten Pyrometer (backward-compat). Siehe read_temperatures()."""
+        temps = self.read_temperatures()
+        return temps[0] if temps else None
+
+    def read_temperatures(self):
+        """Liste aller Pyrometer-Temperaturen in °C (50-Sample-Mittelwert pro Kanal)."""
+        if self._ai_task is None or self._num_ai == 0:
+            return []
+        self._ai_task.start()
+        raw = self._ai_task.read(number_of_samples_per_channel=50)
+        self._ai_task.stop()
+        # Bei 1 Kanal: flache Liste. Bei mehreren: Liste von Listen.
+        if self._num_ai == 1:
+            channels = [raw]
+        else:
+            channels = raw
+        return [round(current_to_temp(sum(s) / len(s)), 1) for s in channels]
+
     def close(self):
         """Sicheres Herunterfahren: Disable → AO auf 0 V → Tasks schließen."""
         print("Spindel-Controller wird beendet...")
@@ -143,6 +229,18 @@ class SpindleController:
         if self._do_task:
             self._do_task.close()
             self._do_task = None
+
+        if self._valve_task:
+            try:
+                self._valve_task.write([False, False])
+            except Exception:
+                pass
+            self._valve_task.close()
+            self._valve_task = None
+
+        if self._ai_task:
+            self._ai_task.close()
+            self._ai_task = None
 
         print("Tasks sauber geschlossen.")
 

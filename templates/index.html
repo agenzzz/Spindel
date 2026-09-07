@@ -62,6 +62,11 @@ main{flex:1;display:grid;grid-template-columns:300px 1fr;gap:14px;padding:14px;a
 .metric-val.md{font-size:20px;}
 .metric-unit{font-size:12px;color:var(--muted);margin-top:2px;}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.grid3-temp{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
+.temp-card{padding:8px 10px;text-align:center;}
+.temp-card .temp-val{font-size:22px;}
+.temp-lbl{background:transparent;border:none;border-bottom:1px dashed var(--border);color:var(--muted);font-size:9px;font-family:var(--font);text-transform:uppercase;letter-spacing:.6px;text-align:center;width:100%;padding:1px 0 2px;margin-bottom:4px;outline:none;}
+.temp-lbl:focus{border-bottom-color:var(--accent);color:var(--text);}
 
 .status-row{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;}
 .status-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
@@ -183,6 +188,27 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
           <div class="metric-lbl">Frequenz</div>
           <div class="metric-val md" id="d-freq">—</div>
           <div class="metric-unit">Hz</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:8px">
+        <div class="metric-lbl" style="margin-bottom:4px">Temperaturen (Pyrometer)</div>
+        <div class="grid3-temp">
+          <div class="metric temp-card">
+            <input type="text" class="temp-lbl" id="tlbl-0" value="Sensor 1" maxlength="32">
+            <div class="metric-val md temp-val" id="d-temp-0">—</div>
+            <div class="metric-unit">&deg;C</div>
+          </div>
+          <div class="metric temp-card">
+            <input type="text" class="temp-lbl" id="tlbl-1" value="Sensor 2" maxlength="32">
+            <div class="metric-val md temp-val" id="d-temp-1">—</div>
+            <div class="metric-unit">&deg;C</div>
+          </div>
+          <div class="metric temp-card">
+            <input type="text" class="temp-lbl" id="tlbl-2" value="Sensor 3" maxlength="32">
+            <div class="metric-val md temp-val" id="d-temp-2">—</div>
+            <div class="metric-unit">&deg;C</div>
+          </div>
         </div>
       </div>
 
@@ -430,6 +456,37 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
     </div>
   </div>
 
+  <!-- ── Ventile ── -->
+  <div class="section-hdr" id="valve-section-hdr" onclick="toggleSection('valve-section')">
+    <span class="chevron">&#9660;</span>
+    <span class="sec-name">Ventile</span>
+    <span class="sec-status" id="valve-sec-status"></span>
+  </div>
+  <div class="psu-section section-part" id="valve-section" style="grid-template-columns:1fr 1fr">
+    <div class="card" style="text-align:center">
+      <input type="text" class="temp-lbl" id="vlbl-0" value="Ventil 1" maxlength="32" style="font-size:11px;margin-bottom:10px;">
+      <div style="margin-bottom:12px">
+        <span class="psu-dot" id="valve-dot-0"></span>
+        <span class="sv off" id="valve-status-0" style="font-size:16px">ZU</span>
+      </div>
+      <div class="btn-row2">
+        <button class="btn btn-start" style="font-size:13px;padding:10px" onclick="setValve(1,true)">OFFEN</button>
+        <button class="btn btn-stop" style="font-size:13px;padding:10px" onclick="setValve(1,false)">ZU</button>
+      </div>
+    </div>
+    <div class="card" style="text-align:center">
+      <input type="text" class="temp-lbl" id="vlbl-1" value="Ventil 2" maxlength="32" style="font-size:11px;margin-bottom:10px;">
+      <div style="margin-bottom:12px">
+        <span class="psu-dot" id="valve-dot-1"></span>
+        <span class="sv off" id="valve-status-1" style="font-size:16px">ZU</span>
+      </div>
+      <div class="btn-row2">
+        <button class="btn btn-start" style="font-size:13px;padding:10px" onclick="setValve(2,true)">OFFEN</button>
+        <button class="btn btn-stop" style="font-size:13px;padding:10px" onclick="setValve(2,false)">ZU</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ── Einstellungen ── -->
@@ -459,6 +516,7 @@ es.onmessage = (e) => {
   updateDisplay(s);
   updatePSU(s);
   updatePSU2(s);
+  updateValves(s);
   updateSectionStatus(s);
 };
 es.onerror = () => showError('Verbindung unterbrochen. Seite neu laden?');
@@ -480,6 +538,19 @@ function updateDisplay(s) {
   document.getElementById('d-lauf').textContent  = fmtT(s.laufzeit_s);
   document.getElementById('d-rest').textContent  = fmtT(s.restzeit_s);
 
+  // Temperaturen (3 Sensoren)
+  const temps = s.temperatures || [null, null, null];
+  for (let i = 0; i < 3; i++) {
+    const el = document.getElementById('d-temp-' + i);
+    const t = temps[i];
+    if (t != null) {
+      el.textContent = fmt(t, 1);
+      if (t > 300) el.style.color = 'var(--red)';
+      else if (t > 100) el.style.color = 'var(--orange)';
+      else el.style.color = 'var(--green-h)';
+    } else { el.textContent = '—'; el.style.color = 'var(--muted)'; }
+  }
+
   const on = !!s.enabled;
   document.getElementById('dot').classList.toggle('on', on);
   const st = document.getElementById('d-status');
@@ -495,6 +566,8 @@ function updateDisplay(s) {
 
   if (_first) {
     _first = false;
+    const lbls = s.temp_labels || ['Sensor 1','Sensor 2','Sensor 3'];
+    for (let i = 0; i < 3; i++) document.getElementById('tlbl-' + i).value = lbls[i] || ('Sensor '+(i+1));
     document.getElementById('ex-ao').value   = s.ao_channel   || '';
     document.getElementById('ex-do').value   = s.do_channel   || '';
     document.getElementById('ex-rmin').value = s.rpm_min      ?? 0;
@@ -565,6 +638,12 @@ function saveSettings() {
   });
 }
 function api(ep) { post('/api/' + ep); }
+for (let i = 0; i < 3; i++) {
+  document.getElementById('tlbl-' + i).addEventListener('change', () => {
+    const labels = [0,1,2].map(j => document.getElementById('tlbl-'+j).value);
+    post('/api/settings', { temp_labels: labels });
+  });
+}
 function exportCsv() { window.open('/api/export/csv', '_blank'); }
 
 // ─── fetch helper ────────────────────────────────────────────────────────────
@@ -591,8 +670,17 @@ function toggleSection(id) {
 function updateSectionStatus(s) {
   // Spindel
   const spSt = document.getElementById('spindle-sec-status');
-  if (s.enabled) spSt.innerHTML = '<span style="color:var(--green-h)">' + fmt(s.soll_rpm) + ' U/min</span>';
-  else spSt.textContent = s.simulation ? 'SIMULATION' : 'AUS';
+  let spTxt = s.simulation ? 'SIMULATION' : 'AUS';
+  if (s.enabled) spTxt = '<span style="color:var(--green-h)">' + fmt(s.soll_rpm) + ' U/min</span>';
+  const temps = s.temperatures || [];
+  const labels = s.temp_labels || ['Sensor 1','Sensor 2','Sensor 3'];
+  const validTemps = temps.map((t,i) => ({t, l: labels[i]})).filter(x => x.t != null);
+  if (validTemps.length) {
+    const hot = validTemps.reduce((a,b) => a.t > b.t ? a : b);
+    const col = hot.t > 300 ? 'var(--red)' : hot.t > 100 ? 'var(--orange)' : 'var(--green-h)';
+    spTxt += ' &nbsp; <span style="color:' + col + '">' + hot.l + ': ' + fmt(hot.t,1) + '°C</span>';
+  }
+  spSt.innerHTML = spTxt;
   // RD6006
   const p1St = document.getElementById('psu-sec-status');
   if (s.psu_simulation) p1St.textContent = 'SIMULATION';
@@ -687,6 +775,39 @@ function updatePSU2(s) {
   else { badge.style.display = 'none'; }
 
   if (s.psu2_error) showError(s.psu2_error);
+}
+
+// ─── Ventile ────────────────────────────────────────────────────────────────
+function setValve(nr, state) { post('/api/valve', { valve: nr, state: state }); }
+
+for (let i = 0; i < 2; i++) {
+  document.getElementById('vlbl-' + i).addEventListener('change', () => {
+    const labels = [0,1].map(j => document.getElementById('vlbl-'+j).value);
+    post('/api/settings', { valve_labels: labels });
+  });
+}
+
+function updateValves(s) {
+  for (let i = 0; i < 2; i++) {
+    const on = !!s['valve' + (i+1)];
+    document.getElementById('valve-dot-' + i).classList.toggle('on', on);
+    const st = document.getElementById('valve-status-' + i);
+    st.className = 'sv ' + (on ? 'on' : 'off');
+    st.textContent = on ? 'OFFEN' : 'ZU';
+  }
+  // Labels beim ersten Mal setzen
+  if (s.valve_labels) {
+    for (let i = 0; i < 2; i++) {
+      const el = document.getElementById('vlbl-' + i);
+      if (el.value === 'Ventil ' + (i+1) || el.value === '') el.value = s.valve_labels[i] || ('Ventil '+(i+1));
+    }
+  }
+  // Section-Header
+  const vSt = document.getElementById('valve-sec-status');
+  const vl = s.valve_labels || ['V1','V2'];
+  const v1 = s.valve1 ? '<span style="color:var(--green-h)">OFFEN</span>' : 'ZU';
+  const v2 = s.valve2 ? '<span style="color:var(--green-h)">OFFEN</span>' : 'ZU';
+  vSt.innerHTML = vl[0] + ': ' + v1 + ' &nbsp;|&nbsp; ' + vl[1] + ': ' + v2;
 }
 </script>
 </body>

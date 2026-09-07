@@ -1,7 +1,14 @@
 __pycache__/
 *.pyc
-*.pyo
 .claude/
 test_server.log
 Spindel_Historie_*.csv
 Main.html
+build/
+dist/
+Spindel.spec
+backups/
+DPM8624/
+OPTCSMALT22HHCF305/
+i570_mx2_users_manual_de.pdf
+*.pdf

@@ -1,5 +1,5 @@
 @echo off
-:: Prüfen ob Admin-Rechte vorhanden
+:: Prueft Admin-Rechte
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo Administratorrechte erforderlich. Neustart mit erhoehten Rechten...
@@ -7,21 +7,23 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-:: Shortcut auf Public Desktop — zeigt auf C:\Users\Public\Spindel
-set "SRC=C:\Users\Public\Spindel\Spindel Starten.bat"
-set "DST=C:\Users\Public\Desktop\Spindel Starten.bat"
+:: Erstellt einen .lnk Shortcut auf das Public Desktop (zeigt auf Spindel.exe)
+set "EXE=C:\Users\Public\Spindel\Spindel.exe"
+set "LNK=C:\Users\Public\Desktop\Spindel Starten.lnk"
 
-copy /Y "%SRC%" "%DST%" >nul
-if %errorlevel% equ 0 (
+powershell -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%LNK%'); $s.TargetPath='%EXE%'; $s.WorkingDirectory='C:\Users\Public\Spindel'; $s.IconLocation='%%SystemRoot%%\System32\imageres.dll,77'; $s.Description='HSD Spindel Web-Interface'; $s.Save()"
+
+if exist "%LNK%" (
     echo.
     echo  Shortcut erfolgreich installiert:
-    echo  %DST%
+    echo  %LNK%
     echo.
     echo  "Spindel Starten" ist jetzt auf dem Desktop aller Nutzer sichtbar.
-    echo  Code-Ordner: C:\Users\Public\Spindel
+    echo  EXE-Pfad: %EXE%
+    echo  Kein Python erforderlich.
 ) else (
     echo.
-    echo  FEHLER: Konnte Shortcut nicht kopieren.
+    echo  FEHLER: Konnte Shortcut nicht erstellen.
 )
 
 echo.
