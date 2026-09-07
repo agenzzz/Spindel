@@ -2,13 +2,20 @@
 
 Python-basierte Steuerung einer HSD Hochfrequenzspindel über eine NI cDAQ-9178 DAQ-Box mit Browser-Interface.
 
+## Versionshistorie
+
+- **v2** (2026-09-07): Drehzahl-Formel fuer 4-Pol-Motor korrigiert (RPM_MAX 24000 → 12000), modulares Sensor-Filtersystem (raw/mean/median/rms/min/max/lowpass), Timer-Race-Fix per Generation-Counter, Motor-Polzahl im Experten-Tab konfigurierbar, Version-Anzeige im UI (v2 als Badge), Rohdaten + Gefiltert in CSV. Alte .bat/Shortcut zum Ordner entfernt — Startpfad einheitlich ueber `Spindel.exe`.
+- **v1**: RD6006 + DPM8624 Netzteile, 3 Pyrometer, 2 Ventile, EXE-Verteilung
+
+**Hinweis zu alten CSV-Exporten:** Vor v2 exportierte CSVs enthalten falsche Frequenz-Werte (mit `f = RPM/60` statt `f = RPM * P/120` fuer 4-Pol). Bei Bedarf manuell umrechnen: `f_korrekt = f_alt × 2` fuer 4-Pol-Motor.
+
 ---
 
 ## Hardware
 
 | Komponente | Details |
 |---|---|
-| Spindel | HSD Hochfrequenzspindel, max. 24.000 U/min |
+| Spindel | HSD Hochfrequenzspindel, 4-Pol-Motor, max. 12.000 U/min bei 400 Hz |
 | DAQ-Chassis | NI cDAQ-9178 |
 | Analogausgang | NI 9263 (Slot 4) — Drehzahlsollwert 0–10 V |
 | Digitalausgang | NI 9472 (Slot 1) — Enable-Signal 24 V |

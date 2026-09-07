@@ -29,6 +29,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);display:flex
 /* ── Header ── */
 header{background:var(--panel);border-bottom:1px solid var(--border);padding:12px 22px;display:flex;align-items:center;gap:12px;}
 .logo{font-size:20px;font-weight:700;letter-spacing:.4px;}
+.version{font-size:11px;font-weight:600;color:var(--muted);background:var(--card);border:1px solid var(--border);padding:2px 8px;border-radius:10px;margin-left:6px;}
 .dot{width:11px;height:11px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red);transition:all .3s;flex-shrink:0;}
 .dot.on{background:var(--green-h);box-shadow:0 0 10px var(--green-h);}
 .sim-badge{margin-left:auto;background:#3d2b00;border:1px solid var(--yellow);color:var(--yellow);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;display:none;}
@@ -150,6 +151,7 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
 <header>
   <div class="dot" id="dot"></div>
   <div class="logo" id="hdr-name">HSD Spindel</div>
+  <span class="version" id="hdr-version">v?</span>
   <div class="sim-badge" id="sim-badge">SIMULATION</div>
 </header>
 
@@ -246,10 +248,10 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
       <div class="fg">
         <label>Solldrehzahl</label>
         <div class="row">
-          <input type="number" id="rpm-input" min="0" max="24000" step="100" value="1000">
+          <input type="number" id="rpm-input" min="0" max="12000" step="100" value="1000">
           <span class="unit-lbl">U/min</span>
         </div>
-        <input type="range" id="rpm-slider" min="0" max="24000" step="100" value="1000">
+        <input type="range" id="rpm-slider" min="0" max="12000" step="100" value="1000">
       </div>
 
       <div class="timer-row">
@@ -267,7 +269,7 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
     <div class="tab-pane" id="tab-experten">
       <div class="sec-ttl">Drehzahl &amp; Spannung</div>
       <div class="row">
-        <div style="flex:1"><label>Solldrehzahl (U/min)</label><input type="number" id="ex-rpm" min="0" max="24000" step="1" value="1000"></div>
+        <div style="flex:1"><label>Solldrehzahl (U/min)</label><input type="number" id="ex-rpm" min="0" max="12000" step="1" value="1000"></div>
         <button class="btn btn-accent" style="flex-shrink:0;margin-bottom:0" onclick="applyRpm()">Übernehmen</button>
       </div>
       <div class="row">
@@ -283,12 +285,26 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
       </div>
 
       <hr class="div">
+      <div class="sec-ttl">Motor &amp; FU</div>
+      <div class="g2">
+        <div><label>Motor-Polzahl</label><input type="number" id="ex-poles" min="2" max="16" step="2" value="4"></div>
+        <div><label>FU Max-Frequenz (Hz)</label><input type="number" id="ex-fumax" min="10" max="1000" step="10" value="400"></div>
+      </div>
+      <div style="background:#1e2530;border:1px solid var(--border);border-radius:6px;padding:10px;font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+        <b style="color:var(--yellow)">⚠ Am Omron MX2 pruefen:</b><br>
+        <b>H004</b> = Motor-Polzahl (aktuell: <span id="hint-poles">4</span>)<br>
+        <b>A003</b> = Motor-Nennfrequenz (laut Typenschild)<br>
+        <b>A004</b> = Max-Frequenz (<span id="hint-fumax">400</span> Hz)<br>
+        Formel: n[U/min] = 120 &times; f[Hz] / P
+      </div>
+
+      <hr class="div">
       <div class="sec-ttl">Kanäle &amp; Limits</div>
       <div class="fg"><label>AO-Kanal</label><input type="text" id="ex-ao" value="cDAQ1Mod4/ao1"></div>
       <div class="fg"><label>DO-Kanal</label><input type="text" id="ex-do" value="cDAQ1Mod1/port0/line1"></div>
       <div class="g2">
         <div><label>RPM Min</label><input type="number" id="ex-rmin" value="0"></div>
-        <div><label>RPM Max</label><input type="number" id="ex-rmax" value="24000"></div>
+        <div><label>RPM Max</label><input type="number" id="ex-rmax" value="12000"></div>
         <div><label>Volt Min</label><input type="number" id="ex-vmin" step="0.1" value="0.0"></div>
         <div><label>Volt Max</label><input type="number" id="ex-vmax" step="0.1" value="10.0"></div>
       </div>
@@ -487,6 +503,24 @@ footer{background:var(--panel);border-top:1px solid var(--border);padding:10px 2
     </div>
   </div>
 
+  <!-- ── Sensor-Filter ── -->
+  <div class="section-hdr collapsed" id="filter-section-hdr" onclick="toggleSection('filter-section')">
+    <span class="chevron">&#9660;</span>
+    <span class="sec-name">Sensor-Filter</span>
+    <span class="sec-status" id="filter-sec-status">Rohdaten &rarr; Filterkette &rarr; Anzeige</span>
+  </div>
+  <div class="section-part" id="filter-section" style="display:none;grid-column:1/-1">
+    <div class="card">
+      <div class="card-title">Filterketten je Sensor</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+        Rohdaten werden immer aufgezeichnet (CSV). Die Filterkette laeuft in Reihenfolge fuer die Live-Anzeige.
+        Verfuegbar: <b>raw</b>, <b>mean</b>, <b>median</b>, <b>rms</b>, <b>min</b>, <b>max</b> (mit N Werten) und <b>lowpass</b> (mit alpha=0..1).
+      </div>
+      <div id="filter-editors"></div>
+      <button class="btn btn-full btn-accent" onclick="applyFilters()" style="margin-top:8px">Filter uebernehmen</button>
+    </div>
+  </div>
+
 </main>
 
 <!-- ── Einstellungen ── -->
@@ -566,17 +600,26 @@ function updateDisplay(s) {
 
   if (_first) {
     _first = false;
+    document.getElementById('hdr-version').textContent = 'v' + (s.version || '?');
+    document.getElementById('ex-poles').value = s.motor_poles ?? 4;
+    document.getElementById('ex-fumax').value = s.fu_max_hz ?? 400;
+    document.getElementById('hint-poles').textContent = s.motor_poles ?? 4;
+    document.getElementById('hint-fumax').textContent = s.fu_max_hz ?? 400;
+    if (s.available_filters) _availableFilters = s.available_filters;
+    if (s.temp_filters) _tempFilters = JSON.parse(JSON.stringify(s.temp_filters));
     const lbls = s.temp_labels || ['Sensor 1','Sensor 2','Sensor 3'];
     for (let i = 0; i < 3; i++) document.getElementById('tlbl-' + i).value = lbls[i] || ('Sensor '+(i+1));
+    renderFilterEditors(lbls);
+    _filtersRendered = true;
     document.getElementById('ex-ao').value   = s.ao_channel   || '';
     document.getElementById('ex-do').value   = s.do_channel   || '';
     document.getElementById('ex-rmin').value = s.rpm_min      ?? 0;
-    document.getElementById('ex-rmax').value = s.rpm_max      ?? 24000;
+    document.getElementById('ex-rmax').value = s.rpm_max      ?? 12000;
     document.getElementById('ex-vmin').value = s.voltage_min  ?? 0;
     document.getElementById('ex-vmax').value = s.voltage_max  ?? 10;
     document.getElementById('set-name').value = s.spindle_name || '';
     document.getElementById('set-host').value = s.host || '0.0.0.0';
-    const rmax = s.rpm_max ?? 24000;
+    const rmax = s.rpm_max ?? 12000;
     document.getElementById('rpm-slider').max = rmax;
     document.getElementById('rpm-input').max  = rmax;
     const url = 'http://{{ local_ip }}:{{ port }}';
@@ -629,6 +672,8 @@ function reinit() {
     rpm_max:     +document.getElementById('ex-rmax').value,
     voltage_min: +document.getElementById('ex-vmin').value,
     voltage_max: +document.getElementById('ex-vmax').value,
+    motor_poles: +document.getElementById('ex-poles').value,
+    fu_max_hz:   +document.getElementById('ex-fumax').value,
   });
 }
 function saveSettings() {
@@ -642,6 +687,7 @@ for (let i = 0; i < 3; i++) {
   document.getElementById('tlbl-' + i).addEventListener('change', () => {
     const labels = [0,1,2].map(j => document.getElementById('tlbl-'+j).value);
     post('/api/settings', { temp_labels: labels });
+    if (_filtersRendered) renderFilterEditors(labels);
   });
 }
 function exportCsv() { window.open('/api/export/csv', '_blank'); }
@@ -786,6 +832,64 @@ for (let i = 0; i < 2; i++) {
     post('/api/settings', { valve_labels: labels });
   });
 }
+
+// ─── Sensor-Filter UI ──────────────────────────────────────────────────────
+let _availableFilters = ['raw','mean','median','rms','min','max','lowpass'];
+let _tempFilters = [[], [], []];
+let _filtersRendered = false;
+
+function renderFilterEditors(labels) {
+  const container = document.getElementById('filter-editors');
+  container.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const box = document.createElement('div');
+    box.style = 'margin-bottom:14px;padding:10px;background:var(--panel);border:1px solid var(--border);border-radius:8px';
+    box.innerHTML =
+      '<div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px">' + labels[i] + '</div>' +
+      '<div id="fchain-' + i + '"></div>' +
+      '<button class="btn btn-ghost" style="font-size:11px;padding:6px 10px;margin-top:6px" onclick="addFilter(' + i + ')">+ Filter</button>';
+    container.appendChild(box);
+    renderChain(i);
+  }
+}
+
+function renderChain(sensorIdx) {
+  const div = document.getElementById('fchain-' + sensorIdx);
+  div.innerHTML = '';
+  _tempFilters[sensorIdx].forEach((f, fi) => {
+    const row = document.createElement('div');
+    row.style = 'display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:12px';
+    let opts = _availableFilters.map(x => '<option value="' + x + '"' + (x===f.type?' selected':'') + '>' + x + '</option>').join('');
+    let paramHtml = '';
+    if (f.type === 'lowpass') {
+      paramHtml = 'alpha=<input type="number" min="0.01" max="1" step="0.01" value="' + (f.alpha ?? 0.3) + '" style="width:60px;padding:3px 6px;font-size:11px" onchange="updateFilterParam(' + sensorIdx + ',' + fi + ',\'alpha\',+this.value)">';
+    } else if (f.type !== 'raw') {
+      paramHtml = 'N=<input type="number" min="1" max="200" step="1" value="' + (f.n ?? 10) + '" style="width:60px;padding:3px 6px;font-size:11px" onchange="updateFilterParam(' + sensorIdx + ',' + fi + ',\'n\',+this.value)">';
+    }
+    row.innerHTML =
+      '<span style="color:var(--muted);width:16px">' + (fi+1) + '.</span>' +
+      '<select onchange="updateFilterType(' + sensorIdx + ',' + fi + ',this.value)" style="padding:3px 6px;font-size:11px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px">' + opts + '</select>' +
+      paramHtml +
+      '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;margin-left:auto" onclick="removeFilter(' + sensorIdx + ',' + fi + ')">&times;</button>';
+    div.appendChild(row);
+  });
+  if (_tempFilters[sensorIdx].length === 0) {
+    div.innerHTML = '<div style="color:var(--muted);font-size:11px;font-style:italic">Kein Filter (Rohdaten)</div>';
+  }
+}
+
+function addFilter(sensorIdx) { _tempFilters[sensorIdx].push({type:'median', n:5}); renderChain(sensorIdx); }
+function removeFilter(sensorIdx, fi) { _tempFilters[sensorIdx].splice(fi,1); renderChain(sensorIdx); }
+function updateFilterType(sensorIdx, fi, t) {
+  const cur = _tempFilters[sensorIdx][fi];
+  const newF = {type: t};
+  if (t === 'lowpass') newF.alpha = cur.alpha ?? 0.3;
+  else if (t !== 'raw') newF.n = cur.n ?? 10;
+  _tempFilters[sensorIdx][fi] = newF;
+  renderChain(sensorIdx);
+}
+function updateFilterParam(sensorIdx, fi, key, val) { _tempFilters[sensorIdx][fi][key] = val; }
+function applyFilters() { post('/api/temp_filters', { filters: _tempFilters }); }
 
 function updateValves(s) {
   for (let i = 0; i < 2; i++) {

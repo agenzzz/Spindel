@@ -18,7 +18,10 @@ from datetime import datetime
 
 from flask import Flask, Response, render_template, request, jsonify
 
+from filters import build_chain, AVAILABLE_FILTERS
+
 # ─── KONFIGURATION ────────────────────────────────────────────────────────────
+APP_VERSION  = "2"              # bei jeder Aenderung hochzaehlen
 HOST         = "0.0.0.0"       # Alle Netzwerk-Interfaces → LAN-Zugriff möglich
 PORT         = 5000
 SPINDLE_NAME = "HSD Spindel"
@@ -36,6 +39,7 @@ try:
         AO_CHANNEL, DO_CHANNEL,
         VOLTAGE_MIN, VOLTAGE_MAX,
         RPM_MIN, RPM_MAX, DEFAULT_RPM,
+        MOTOR_POLES, FU_MAX_HZ,
     )
     _HW_AVAILABLE = True
 except ImportError:
@@ -45,7 +49,9 @@ except ImportError:
     VOLTAGE_MIN = 0.0
     VOLTAGE_MAX = 10.0
     RPM_MIN     = 0
-    RPM_MAX     = 24000
+    MOTOR_POLES = 4
+    FU_MAX_HZ   = 400.0
+    RPM_MAX     = 12000
     DEFAULT_RPM = 1000
 
 
@@ -156,12 +162,22 @@ state = {
     "rpm_max":      float(RPM_MAX),
     "voltage_min":  float(VOLTAGE_MIN),
     "voltage_max":  float(VOLTAGE_MAX),
+    "motor_poles":  int(MOTOR_POLES),
+    "fu_max_hz":    float(FU_MAX_HZ),
+    "version":      APP_VERSION,
     "simulation":   False,
     "error":        "",
     # ── Temperaturen (3 Pyrometer) ──
     "temperature_c":  None,            # Backward-Compat = temps[0]
-    "temperatures":   [None, None, None],
-    "temp_labels":    ["Sensor 1", "Sensor 2", "Sensor 3"],
+    "temperatures":       [None, None, None],  # gefiltert (fuer Anzeige)
+    "temperatures_raw":   [None, None, None],  # Rohwerte (fuer CSV)
+    "temp_labels":        ["Sensor 1", "Sensor 2", "Sensor 3"],
+    "temp_filters":       [                      # pro Sensor eine Filterkette
+        [{"type": "median", "n": 5}, {"type": "lowpass", "alpha": 0.3}],
+        [{"type": "median", "n": 5}, {"type": "lowpass", "alpha": 0.3}],
+        [{"type": "median", "n": 5}, {"type": "lowpass", "alpha": 0.3}],
+    ],
+    "available_filters":  AVAILABLE_FILTERS,
     # ── Ventile ──
     "valve1":         False,
     "valve2":         False,
@@ -192,7 +208,12 @@ state = {
     "psu2_error":      "",
 }
 state_lock  = threading.Lock()
-timer_event = threading.Event()   # gesetzt → Timer-Thread soll stoppen
+_timer_gen  = 0
+_timer_gen_lock = threading.Lock()  # Race-Fix: gen++ und capture atomar
+
+# Filter-Ketten pro Sensor (werden bei Reconfig neu gebaut)
+_temp_chains = [build_chain(cfg) for cfg in state["temp_filters"]]
+_temp_chains_lock = threading.Lock()
 
 # ─── HISTORIE ─────────────────────────────────────────────────────────────────
 MAX_HISTORY  = 18000   # ~1 Stunde bei 200 ms Intervall
@@ -208,8 +229,9 @@ def _record(snap):
         "ist":     snap["ist_rpm"],
         "volt":    snap["voltage"],
         "freq":    snap["frequency_hz"],
-        "enabled": int(snap["enabled"]),
-        "temps":   list(snap.get("temperatures") or [None, None, None]),
+        "enabled":   int(snap["enabled"]),
+        "temps":     list(snap.get("temperatures") or [None, None, None]),
+        "temps_raw": list(snap.get("temperatures_raw") or [None, None, None]),
     }
     with history_lock:
         history.append(entry)
@@ -291,29 +313,95 @@ psu2 = _init_psu2()
 psu2_lock = threading.Lock()
 # ──────────────────────────────────────────────────────────────────────────────
 
-# ─── TIMER-THREAD ─────────────────────────────────────────────────────────────
-def _timer_worker(limit_s):
+# ─── SENSOR-POLL-THREAD ──────────────────────────────────────────────────────
+# Ein einziger Thread liest DAQ + PSUs, egal wie viele Browser-Tabs offen sind.
+# Verhindert konkurrierende ai_task.start()-Aufrufe (Fable-Review P3).
+def _sensor_poll_worker():
+    while True:
+        # Temperaturen (DAQ) + Filter
+        try:
+            raw = controller.read_temperatures_raw()
+            raw = (list(raw) + [None, None, None])[:3]
+            with _temp_chains_lock:
+                filtered = [
+                    round(_temp_chains[i].apply(raw[i]), 2) if raw[i] is not None else None
+                    for i in range(3)
+                ]
+            with state_lock:
+                state["temperatures_raw"] = raw
+                state["temperatures"]     = filtered
+                state["temperature_c"]    = filtered[0]
+        except Exception:
+            pass
+
+        # PSU1 (RD6006)
+        try:
+            with psu_lock:
+                ps = psu.status()
+            with state_lock:
+                state["psu_soll_v"]     = ps["soll_v"]
+                state["psu_soll_a"]     = ps["soll_a"]
+                state["psu_ist_v"]      = ps["ist_v"]
+                state["psu_ist_a"]      = ps["ist_a"]
+                state["psu_input_v"]    = ps["input_v"]
+                state["psu_output"]     = ps["output"]
+                state["psu_cv_cc"]      = ps["cv_cc"]
+                state["psu_protection"] = ps["protection"]
+        except Exception:
+            pass
+
+        # PSU2 (DPM8624)
+        try:
+            with psu2_lock:
+                ps2 = psu2.status()
+            with state_lock:
+                state["psu2_soll_v"]     = ps2["soll_v"]
+                state["psu2_soll_a"]     = ps2["soll_a"]
+                state["psu2_ist_v"]      = ps2["ist_v"]
+                state["psu2_ist_a"]      = ps2["ist_a"]
+                state["psu2_input_v"]    = ps2["input_v"]
+                state["psu2_output"]     = ps2["output"]
+                state["psu2_cv_cc"]      = ps2["cv_cc"]
+                state["psu2_protection"] = ps2["protection"]
+        except Exception:
+            pass
+
+        time.sleep(0.2)   # 5 Hz Update
+
+
+_sensor_thread = threading.Thread(target=_sensor_poll_worker, daemon=True)
+_sensor_thread.start()
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ─── TIMER-THREAD (Generation-Counter, kein Self-Join-Deadlock) ──────────────
+def _timer_worker(limit_s, my_gen):
+    """Laufzeit-Zaehler. Terminiert wenn my_gen != _timer_gen (invalidiert)."""
     t0 = time.monotonic()
-    while not timer_event.is_set():
+    while my_gen == _timer_gen:
         elapsed = time.monotonic() - t0
         remaining = (limit_s - elapsed) if limit_s is not None else None
         with state_lock:
             state["laufzeit_s"] = elapsed
             state["restzeit_s"] = remaining
         if limit_s is not None and elapsed >= limit_s:
-            _do_stop()
-            break
+            _do_stop()  # ruft intern _stop_timer() → wir sehen my_gen != _timer_gen und exiten
+            return
         time.sleep(0.5)
 
 
 def _start_timer(limit_s=None):
-    timer_event.clear()
-    t = threading.Thread(target=_timer_worker, args=(limit_s,), daemon=True)
+    global _timer_gen
+    with _timer_gen_lock:             # atomar: inkrementieren + capturen
+        _timer_gen += 1
+        my_gen = _timer_gen
+    t = threading.Thread(target=_timer_worker, args=(limit_s, my_gen), daemon=True)
     t.start()
 
 
 def _stop_timer():
-    timer_event.set()
+    global _timer_gen
+    with _timer_gen_lock:
+        _timer_gen += 1               # alte Threads terminieren beim naechsten Loop
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ─── HILFSFUNKTIONEN ──────────────────────────────────────────────────────────
@@ -365,51 +453,12 @@ def index():
 
 @app.route("/stream")
 def stream():
+    """SSE-Stream: liest nur State (Hardware-Reads passieren in _sensor_poll_worker).
+
+    Sicher fuer mehrere gleichzeitige Browser-Tabs — kein DAQ-Race mehr.
+    """
     def event_gen():
         while True:
-            # Temperaturen lesen (alle 3 Pyrometer)
-            try:
-                temps = controller.read_temperatures()
-                # Auf 3 Elemente auffuellen/kuerzen
-                temps = (list(temps) + [None, None, None])[:3]
-                with state_lock:
-                    state["temperatures"]   = temps
-                    state["temperature_c"]  = temps[0]
-            except Exception:
-                pass
-
-            # PSU-Messwerte aktualisieren
-            try:
-                with psu_lock:
-                    ps = psu.status()
-                with state_lock:
-                    state["psu_soll_v"]     = ps["soll_v"]
-                    state["psu_soll_a"]     = ps["soll_a"]
-                    state["psu_ist_v"]      = ps["ist_v"]
-                    state["psu_ist_a"]      = ps["ist_a"]
-                    state["psu_input_v"]    = ps["input_v"]
-                    state["psu_output"]     = ps["output"]
-                    state["psu_cv_cc"]      = ps["cv_cc"]
-                    state["psu_protection"] = ps["protection"]
-            except Exception:
-                pass  # Bei Lesefehler alte Werte behalten
-
-            # PSU2-Messwerte aktualisieren
-            try:
-                with psu2_lock:
-                    ps2 = psu2.status()
-                with state_lock:
-                    state["psu2_soll_v"]     = ps2["soll_v"]
-                    state["psu2_soll_a"]     = ps2["soll_a"]
-                    state["psu2_ist_v"]      = ps2["ist_v"]
-                    state["psu2_ist_a"]      = ps2["ist_a"]
-                    state["psu2_input_v"]    = ps2["input_v"]
-                    state["psu2_output"]     = ps2["output"]
-                    state["psu2_cv_cc"]      = ps2["cv_cc"]
-                    state["psu2_protection"] = ps2["protection"]
-            except Exception:
-                pass
-
             with state_lock:
                 snap = dict(state)
             _record(snap)
@@ -432,10 +481,12 @@ def export_csv():
         labels = list(state.get("temp_labels", ["Sensor 1", "Sensor 2", "Sensor 3"]))
     w.writerow([
         "Zeitstempel", "Soll_RPM", "Ist_RPM", "Spannung_V", "Frequenz_Hz", "Aktiv",
-        f"{labels[0]}_C", f"{labels[1]}_C", f"{labels[2]}_C",
+        f"{labels[0]}_gefiltert_C", f"{labels[1]}_gefiltert_C", f"{labels[2]}_gefiltert_C",
+        f"{labels[0]}_roh_C",       f"{labels[1]}_roh_C",       f"{labels[2]}_roh_C",
     ])
     for r in rows:
-        temps = (list(r.get("temps") or []) + [None, None, None])[:3]
+        temps     = (list(r.get("temps")     or []) + [None, None, None])[:3]
+        temps_raw = (list(r.get("temps_raw") or []) + [None, None, None])[:3]
         w.writerow([
             datetime.fromtimestamp(r["ts"]).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             f"{r['soll']:.1f}",
@@ -443,9 +494,12 @@ def export_csv():
             f"{r['volt']:.4f}",
             f"{r['freq']:.2f}",
             r["enabled"],
-            f"{temps[0]:.1f}" if temps[0] is not None else "",
-            f"{temps[1]:.1f}" if temps[1] is not None else "",
-            f"{temps[2]:.1f}" if temps[2] is not None else "",
+            f"{temps[0]:.2f}"     if temps[0]     is not None else "",
+            f"{temps[1]:.2f}"     if temps[1]     is not None else "",
+            f"{temps[2]:.2f}"     if temps[2]     is not None else "",
+            f"{temps_raw[0]:.2f}" if temps_raw[0] is not None else "",
+            f"{temps_raw[1]:.2f}" if temps_raw[1] is not None else "",
+            f"{temps_raw[2]:.2f}" if temps_raw[2] is not None else "",
         ])
     filename = f"Spindel_Historie_{_session_start}.csv"
     return Response(
@@ -469,13 +523,16 @@ def api_start():
 
     rpm = max(state["rpm_min"], min(state["rpm_max"], rpm))
     try:
+        # Timer-Race-Fix: erst alten Timer stoppen, DANN State-Reset, DANN neuen starten
+        _stop_timer()
         voltage = controller.set_speed(rpm)
         controller.enable()
+        poles = state["motor_poles"]
         with state_lock:
             state["soll_rpm"]     = rpm
             state["ist_rpm"]      = rpm
             state["voltage"]      = voltage
-            state["frequency_hz"] = rpm / 60.0
+            state["frequency_hz"] = rpm * poles / 120.0
             state["enabled"]      = True
             state["laufzeit_s"]   = 0.0
             state["restzeit_s"]   = float(limit_m) * 60 if limit_m else None
@@ -507,11 +564,12 @@ def api_set_speed():
     rpm  = max(state["rpm_min"], min(state["rpm_max"], rpm))
     try:
         voltage = controller.set_speed(rpm)
+        poles = state["motor_poles"]
         with state_lock:
             state["soll_rpm"]     = rpm
             state["ist_rpm"]      = rpm if state["enabled"] else 0.0
             state["voltage"]      = voltage
-            state["frequency_hz"] = rpm / 60.0
+            state["frequency_hz"] = rpm * poles / 120.0
             state["error"]        = ""
         return jsonify({"ok": True, "voltage": voltage})
     except Exception as exc:
@@ -582,6 +640,14 @@ def api_reinit():
             if "rpm_max"     in data: state["rpm_max"]     = float(data["rpm_max"])
             if "voltage_min" in data: state["voltage_min"] = float(data["voltage_min"])
             if "voltage_max" in data: state["voltage_max"] = float(data["voltage_max"])
+            if "motor_poles" in data:
+                p = max(2, min(16, int(data["motor_poles"])))
+                state["motor_poles"] = p
+                # RPM_MAX = 120 * FU_MAX_HZ / P  automatisch neu berechnen
+                state["rpm_max"] = int(120.0 * state["fu_max_hz"] / p)
+            if "fu_max_hz"   in data:
+                state["fu_max_hz"] = float(data["fu_max_hz"])
+                state["rpm_max"]   = int(120.0 * state["fu_max_hz"] / state["motor_poles"])
 
         global controller
 
@@ -595,6 +661,8 @@ def api_reinit():
         _sc.VOLTAGE_MAX = state["voltage_max"]
         _sc.RPM_MIN     = state["rpm_min"]
         _sc.RPM_MAX     = state["rpm_max"]
+        _sc.MOTOR_POLES = state["motor_poles"]
+        _sc.FU_MAX_HZ   = state["fu_max_hz"]
 
         controller = SpindleController()
 
@@ -655,6 +723,26 @@ def api_psu_off():
             state["psu_error"] = str(exc)
         return jsonify({"ok": False, "error": str(exc)}), 500
 # ──────────────────────────────────────────────────────────────────────────────
+
+# ─── TEMP-FILTER API ────────────────────────────────────────────────────────
+@app.route("/api/temp_filters", methods=["POST"])
+def api_temp_filters():
+    """Erwartet: {"filters": [[...chain0...], [...chain1...], [...chain2...]]}"""
+    global _temp_chains
+    data = request.get_json(silent=True) or {}
+    chains_cfg = data.get("filters")
+    if not isinstance(chains_cfg, list) or len(chains_cfg) != 3:
+        return jsonify({"ok": False, "error": "filters muss Liste mit 3 Ketten sein"}), 400
+    try:
+        new_chains = [build_chain(c) for c in chains_cfg]
+        with _temp_chains_lock:
+            _temp_chains = new_chains
+        with state_lock:
+            state["temp_filters"] = chains_cfg
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
 
 # ─── VENTIL API-ROUTEN ───────────────────────────────────────────────────────
 @app.route("/api/valve", methods=["POST"])

@@ -34,9 +34,13 @@ AI_CHANNEL  = AI_CHANNELS[0]           # Backward-Compat
 VOLTAGE_MIN = 0.0    # Volt bei RPM_MIN
 VOLTAGE_MAX = 10.0   # Volt bei RPM_MAX
 
+MOTOR_POLES = 4      # Anzahl Motor-Pole (HSD-Spindel: 4-Pol-Motor)
+FU_MAX_HZ   = 400.0  # Max-Frequenz des Omron MX2 (A004)
+
 RPM_MIN     = 0
-RPM_MAX     = 24000  # Maximale Drehzahl der HSD-Spindel
-DEFAULT_RPM = 1000    # Startdrehzahl
+# n[U/min] = 120 * f / P  →  bei 4 Pole + 400 Hz = 12000 U/min
+RPM_MAX     = int(120.0 * FU_MAX_HZ / MOTOR_POLES)
+DEFAULT_RPM = 1000   # Startdrehzahl
 
 # ─── Pyrometer (Optris CSmicro LT22H, OPTCSMALT22HHCF305) ───────────────────
 TEMP_MIN     = 0.0    # °C bei 4 mA (Werkseinstellung)
@@ -134,11 +138,12 @@ class SpindleController:
                     min_val=CURRENT_4MA,
                     max_val=CURRENT_20MA,
                 )
-            # 50 Samples @ 1 kHz mitteln → stabiler Messwert
+            # 200 Samples @ 1 kHz = 200 ms Fenster (10x 50-Hz-Netzperiode)
+            # Fable-Review: 500ms wuerde SSE-Tick blockieren, 200ms passt
             self._ai_task.timing.cfg_samp_clk_timing(
                 rate=1000,
                 sample_mode=AcquisitionType.FINITE,
-                samps_per_chan=50,
+                samps_per_chan=200,
             )
             self._num_ai = len(AI_CHANNELS)
         except Exception:
@@ -194,19 +199,28 @@ class SpindleController:
         temps = self.read_temperatures()
         return temps[0] if temps else None
 
-    def read_temperatures(self):
-        """Liste aller Pyrometer-Temperaturen in °C (50-Sample-Mittelwert pro Kanal)."""
+    def read_temperatures_raw(self):
+        """Liste der Roh-Temperaturen in °C (nur 200-Sample-Mittelwert im DAQ, kein Post-Filter).
+
+        Diese Rohwerte werden im CSV gespeichert. Filterung/Glaettung fuer die
+        Anzeige passiert modular in spindel_web.py ueber die Filterkette pro Sensor.
+        """
         if self._ai_task is None or self._num_ai == 0:
             return []
-        self._ai_task.start()
-        raw = self._ai_task.read(number_of_samples_per_channel=50)
-        self._ai_task.stop()
+        try:
+            self._ai_task.start()
+            raw = self._ai_task.read(number_of_samples_per_channel=200)
+            self._ai_task.stop()
+        except Exception:
+            return [None] * self._num_ai
+
         # Bei 1 Kanal: flache Liste. Bei mehreren: Liste von Listen.
-        if self._num_ai == 1:
-            channels = [raw]
-        else:
-            channels = raw
-        return [round(current_to_temp(sum(s) / len(s)), 1) for s in channels]
+        channels = [raw] if self._num_ai == 1 else raw
+        return [round(current_to_temp(sum(s) / len(s)), 2) for s in channels]
+
+    def read_temperatures(self):
+        """Backward-Compat Alias fuer read_temperatures_raw()."""
+        return self.read_temperatures_raw()
 
     def close(self):
         """Sicheres Herunterfahren: Disable → AO auf 0 V → Tasks schließen."""
